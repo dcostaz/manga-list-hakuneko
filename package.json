@@ -1,0 +1,22 @@
+{
+  "name": "manga-list-hakuneko",
+  "version": "1.0.0",
+  "description": "Runtime tracker package source and builder for Hakuneko",
+  "main": "src/runtime/apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs",
+  "scripts": {
+    "build": "node scripts/build-runtime-plugin-package.cjs",
+    "build:runtime": "node scripts/build-runtime-plugin-package.cjs",
+    "test": "node --test tests/unit/*.test.cjs"
+  },
+  "keywords": [
+    "manga",
+    "hakuneko",
+    "tracker"
+  ],
+  "author": "dcostaz",
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "jszip": "^3.10.1"
+  }
+}

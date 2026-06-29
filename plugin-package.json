@@ -1,0 +1,36 @@
+{
+  "pluginName": "hakuneko",
+  "pluginType": "tracker",
+  "pluginContractVersion": "1.0.0",
+  "hostApiVersion": "1.0.0",
+  "capabilities": ["tracker.file", "workspace.list", "workspace.get"],
+  "iconPath": "images/hakuneko-icon.svg",
+  "workspace": {
+    "workspaceId": "plugin:hakuneko",
+    "enabled": true,
+    "displayLabel": "Hakuneko",
+    "iconPath": "images/hakuneko-icon.svg",
+    "cardDisplay": {
+      "titleField": "mangaTitle",
+      "metricField": "chapterTitle",
+      "badgeFields": ["connectorLabel"]
+    },
+    "sortableFields": ["mangaTitle", "connectorLabel"],
+    "detailLayout": [
+      {
+        "sectionId": "overview",
+        "type": "stat-grid",
+        "label": "Overview",
+        "fields": ["connectorLabel", "chapterTitle"]
+      }
+    ],
+    "emptyState": {
+      "message": "No bookmarks found. Check that bookmarksPath is set correctly in plugin settings.",
+      "actionCapability": null
+    }
+  },
+  "entrypoints": {
+    "pluginModule": "apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs",
+    "settingsFile": "apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json"
+  }
+}
