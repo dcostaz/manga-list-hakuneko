@@ -1,0 +1,20 @@
+{
+  "downloadBaseDir": {
+    "type": "string",
+    "label": "Manga base directory",
+    "description": "Base directory shared by Hakuneko and manga-list. Folder matching uses {downloadBaseDir}/{mangaTitle}/",
+    "readOnly": false
+  },
+  "bookmarksPath": {
+    "type": "string",
+    "label": "Hakuneko bookmarks file",
+    "description": "Full path to hakuneko.bookmarks JSON file",
+    "readOnly": false
+  },
+  "chaptermarksPath": {
+    "type": "string",
+    "label": "Hakuneko chaptermarks file",
+    "description": "Full path to hakuneko.chaptermarks JSON file",
+    "readOnly": false
+  }
+}
