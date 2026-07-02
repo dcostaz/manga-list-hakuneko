@@ -122,10 +122,11 @@ class HakunekoSettings {
     const userSettingsService = opts.userSettingsService && typeof opts.userSettingsService.getUserSetting === 'function'
       ? opts.userSettingsService
       : null;
-    const userId = typeof opts.userId === 'number' ? opts.userId : 0;
+    // null when no user is logged in → Tier-1 defaults only (no overlay, no save).
+    const userId = typeof opts.userId === 'number' ? opts.userId : null;
 
-    // Tier 2: overlay any saved per-field overrides on top of Tier-1 defaults.
-    if (userSettingsService) {
+    // Tier 2: overlay this user's saved per-field overrides on top of Tier-1 defaults.
+    if (userSettingsService && typeof userId === 'number') {
       for (const key of Object.keys(SCHEMA)) {
         try {
           const pref = userSettingsService.getUserSetting(userId, COMPONENT_NAME, key);
@@ -165,13 +166,16 @@ class HakunekoSettings {
   }
 
   /**
-   * Persist the current values to user_settings (one row per schema key,
-   * under the system user — see PluginService.SYSTEM_USER_ID).
+   * Persist the current values to the host user_settings store (one row per schema
+   * key, keyed by the resolving user). Requires a logged-in user.
    * @returns {Promise<void>}
    */
   async save() {
     if (!this._userSettingsService || typeof this._userSettingsService.setUserSetting !== 'function') {
       throw new Error('Hakuneko settings cannot be saved: no user settings service is available.');
+    }
+    if (typeof this._userId !== 'number') {
+      throw new Error('Hakuneko settings cannot be saved: no user is logged in.');
     }
     for (const key of Object.keys(SCHEMA)) {
       if (Object.prototype.hasOwnProperty.call(this._settings, key)) {
