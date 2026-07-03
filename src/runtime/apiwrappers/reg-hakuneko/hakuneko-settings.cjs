@@ -38,7 +38,17 @@ const SCHEMA = {
     description: 'Full path to hakuneko.bookmarks JSON file',
     readOnly: false,
     category: 'general',
-    order: 20
+    order: 20,
+    // Without this the Settings UI's browse button defaults to a directory
+    // picker (settings-editor-enhanced.js: `uiHints.pathType || 'directory'`),
+    // which is wrong for a single-file setting like this one.
+    uiHints: {
+      pathType: 'file',
+      filters: [
+        { name: 'Hakuneko bookmarks', extensions: ['bookmarks', 'json'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    }
   },
   chaptermarksPath: {
     type: 'path',
@@ -49,7 +59,14 @@ const SCHEMA = {
     description: 'Full path to hakuneko.chaptermarks JSON file',
     readOnly: false,
     category: 'general',
-    order: 30
+    order: 30,
+    uiHints: {
+      pathType: 'file',
+      filters: [
+        { name: 'Hakuneko chaptermarks', extensions: ['chaptermarks', 'json'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    }
   }
 };
 
