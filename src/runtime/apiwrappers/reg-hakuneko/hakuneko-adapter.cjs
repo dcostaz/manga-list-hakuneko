@@ -84,7 +84,7 @@ class HakunekoAdapter {
   get pluginName() { return SERVICE_NAME; }
 
   /** @returns {string[]} */
-  get pluginType() { return Object.freeze(['tracker']); }
+  get pluginType() { return Object.freeze(['adapter']); }
 
   /** @returns {string[]} */
   get capabilities() { return Object.freeze(['tracker.file', 'workspace.list', 'workspace.get']); }

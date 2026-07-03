@@ -1,12 +1,15 @@
 # manga-list-hakuneko
 
-Runtime tracker plugin for [manga-list](https://github.com/dcostaz/manga-list) that
-integrates with [Hakuneko Desktop](https://hakuneko.download/) bookmark files.
+Runtime `pluginType: "adapter"` plugin for [manga-list](https://github.com/dcostaz/manga-list)
+that integrates with [Hakuneko Desktop](https://hakuneko.download/) bookmark files.
 
-Hakuneko is a **file-based tracker** (`tracker.file`): there is no remote API. The
-plugin reads and writes Hakuneko's `hakuneko.bookmarks` and `hakuneko.chaptermarks`
-JSON files directly. The per-user file paths configured in plugin settings are the
-user-association mechanism — no credentials are required.
+Hakuneko declares the `tracker.file` capability (bidirectional file-based progress
+sync): there is no remote API. The plugin reads and writes Hakuneko's
+`hakuneko.bookmarks` and `hakuneko.chaptermarks` JSON files directly. The per-user
+file paths configured in plugin settings are the user-association mechanism — no
+credentials are required. Capability names are type-neutral — `tracker.file` does
+not require `pluginType: "tracker"`; see the loader's `_validateCapabilities()`,
+which enforces no such coupling.
 
 ## Capabilities
 

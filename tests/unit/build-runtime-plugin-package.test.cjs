@@ -11,7 +11,7 @@ const { buildManifest } = require(path.join(
 test('manifest - reflects plugin-package.json and injects hostApiVersion', () => {
   const manifest = buildManifest('1.0.0');
   assert.equal(manifest.pluginName, 'hakuneko');
-  assert.equal(manifest.pluginType, 'tracker');
+  assert.equal(manifest.pluginType, 'adapter');
   assert.equal(manifest.hostApiVersion, '1.0.0');
   assert.deepEqual(manifest.capabilities, ['tracker.file', 'workspace.list', 'workspace.get']);
   assert.equal(manifest.workspace.workspaceId, 'plugin:hakuneko');

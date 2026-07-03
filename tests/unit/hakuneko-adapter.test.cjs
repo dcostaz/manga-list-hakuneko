@@ -71,7 +71,7 @@ test('identity - static + instance pluginName, type, capabilities', async () => 
   const env = await setupAdapter();
   try {
     assert.equal(env.adapter.pluginName, 'hakuneko');
-    assert.deepEqual([...env.adapter.pluginType], ['tracker']);
+    assert.deepEqual([...env.adapter.pluginType], ['adapter']);
     assert.deepEqual([...env.adapter.capabilities], ['tracker.file', 'workspace.list', 'workspace.get']);
   } finally {
     await env.cleanup();

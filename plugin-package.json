@@ -1,6 +1,6 @@
 {
   "pluginName": "hakuneko",
-  "pluginType": "tracker",
+  "pluginType": "adapter",
   "pluginContractVersion": "1.0.0",
   "hostApiVersion": "1.0.0",
   "capabilities": ["tracker.file", "workspace.list", "workspace.get"],
