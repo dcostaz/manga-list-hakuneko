@@ -231,7 +231,7 @@ test('buildLinkContribution - null currentChapter when no chaptermark', async ()
 test('listEntries - 5 bookmarks, chapterTitle correct for matched, null otherwise', async () => {
   const env = await setupAdapter();
   try {
-    const page = await env.adapter.listEntries({ page: 1, pageSize: 50 });
+    const page = await env.adapter.listEntries({}, { page: 1, pageSize: 50 });
     assert.equal(page.totalCount, 5);
     assert.equal(page.entries.length, 5);
 
@@ -249,7 +249,7 @@ test('listEntries - 5 bookmarks, chapterTitle correct for matched, null otherwis
 test('listEntries - pagination and sort by mangaTitle', async () => {
   const env = await setupAdapter();
   try {
-    const page1 = await env.adapter.listEntries({ page: 1, pageSize: 2, sortBy: 'mangaTitle' });
+    const page1 = await env.adapter.listEntries({}, { page: 1, pageSize: 2, sort: 'mangaTitle' });
     assert.equal(page1.entries.length, 2);
     assert.equal(page1.totalCount, 5);
     assert.equal(page1.entries[0].fields.mangaTitle.value, 'Bleach');

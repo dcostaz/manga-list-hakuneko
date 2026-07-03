@@ -156,20 +156,30 @@ class HakunekoAdapter {
   /**
    * List bookmark entries as PluginWorkspaceEntry[] with pagination + sorting.
    *
-   * @param {object} [options]
-   * @param {number} [options.page]
-   * @param {number} [options.pageSize]
-   * @param {'mangaTitle' | 'connectorLabel'} [options.sortBy]
-   * @param {string} [options.search]
-   * @param {string[]} [options.includeIds]
-   * @param {string[]} [options.excludeIds]
+   * Two-argument (filters, pagination) contract — matches the host's calling
+   * convention (`apipluginhandler.cjs` case 'listEntries': `instance.listEntries(filters,
+   * { ...pagination, sort })`) and mirrors FMD2's `listEntries(filters, pagination)`.
+   * A prior single-argument `listEntries(options)` shape silently received only the
+   * (usually empty) `filters` object and dropped page/pageSize/sort entirely — the
+   * workspace still "worked" on the default 'all' filter (safe defaults kicked in),
+   * but pagination, sorting, and search were all silent no-ops.
+   *
+   * @param {object} [filters]
+   * @param {string} [filters.search]
+   * @param {string[]} [filters.includeIds]
+   * @param {string[]} [filters.excludeIds]
+   * @param {object} [pagination]
+   * @param {number} [pagination.page]
+   * @param {number} [pagination.pageSize]
+   * @param {string | { field?: string, direction?: string }} [pagination.sort]
    * @returns {Promise<PluginEntryPage | { status: 'error', message: string, retryable: boolean }>}
    */
-  async listEntries(options = {}) {
-    const opts = options && typeof options === 'object' ? options : {};
-    const page = Number.isInteger(opts.page) && opts.page > 0 ? opts.page : 1;
-    const pageSize = Number.isInteger(opts.pageSize) && opts.pageSize > 0 ? opts.pageSize : 50;
-    const sortBy = opts.sortBy === 'connectorLabel' ? 'connectorLabel' : 'mangaTitle';
+  async listEntries(filters = {}, pagination = {}) {
+    const f = filters && typeof filters === 'object' ? filters : {};
+    const p = pagination && typeof pagination === 'object' ? pagination : {};
+    const page = Number.isInteger(p.page) && p.page > 0 ? p.page : 1;
+    const pageSize = Number.isInteger(p.pageSize) && p.pageSize > 0 ? p.pageSize : 50;
+    const { sortBy, sortDesc } = this._resolveSort(p.sort);
 
     const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
     if (!bookmarksRead.ok) {
@@ -187,8 +197,8 @@ class HakunekoAdapter {
       .map((bookmark) => this._buildEntry(bookmark, chapterByKey));
 
     // Search filter (sanitized contains on mangaTitle).
-    if (typeof opts.search === 'string' && opts.search.trim()) {
-      const needle = this._sanitize(opts.search);
+    if (typeof f.search === 'string' && f.search.trim()) {
+      const needle = this._sanitize(f.search);
       if (needle) {
         entries = entries.filter((entry) => {
           const title = this._fieldValue(entry, 'mangaTitle');
@@ -198,19 +208,19 @@ class HakunekoAdapter {
     }
 
     // includeIds/excludeIds applied server-side BEFORE pagination.
-    if (Array.isArray(opts.includeIds)) {
-      const allow = new Set(opts.includeIds);
+    if (Array.isArray(f.includeIds)) {
+      const allow = new Set(f.includeIds);
       entries = entries.filter((entry) => allow.has(entry.pluginEntryId));
     }
-    if (Array.isArray(opts.excludeIds)) {
-      const deny = new Set(opts.excludeIds);
+    if (Array.isArray(f.excludeIds)) {
+      const deny = new Set(f.excludeIds);
       entries = entries.filter((entry) => !deny.has(entry.pluginEntryId));
     }
 
     entries.sort((a, b) => {
       const av = String(this._fieldValue(a, sortBy) ?? '');
       const bv = String(this._fieldValue(b, sortBy) ?? '');
-      return av.localeCompare(bv);
+      return sortDesc ? bv.localeCompare(av) : av.localeCompare(bv);
     });
 
     const totalCount = entries.length;
@@ -218,6 +228,23 @@ class HakunekoAdapter {
     const pageEntries = entries.slice(start, start + pageSize);
 
     return { entries: pageEntries, totalCount, page, pageSize };
+  }
+
+  /**
+   * @param {string | { field?: string, direction?: string } | undefined} sort
+   * @returns {{ sortBy: 'mangaTitle' | 'connectorLabel', sortDesc: boolean }}
+   */
+  _resolveSort(sort) {
+    if (typeof sort === 'string' && sort) {
+      const desc = sort.startsWith('-');
+      const key = desc ? sort.slice(1) : sort;
+      return { sortBy: key === 'connectorLabel' ? 'connectorLabel' : 'mangaTitle', sortDesc: desc };
+    }
+    if (sort && typeof sort === 'object') {
+      const sortBy = sort.field === 'connectorLabel' ? 'connectorLabel' : 'mangaTitle';
+      return { sortBy, sortDesc: sort.direction === 'desc' };
+    }
+    return { sortBy: 'mangaTitle', sortDesc: false };
   }
 
   /**
