@@ -821,6 +821,9 @@ class HakunekoAdapter {
       if (error && error.code === 'ENOENT') {
         return { ok: true, data: [] };
       }
+      if (error && error.code === 'EISDIR') {
+        return { ok: false, message: `${filePath} is a folder, not a file. Point this setting at the hakuneko.bookmarks/hakuneko.chaptermarks JSON file inside it.`, retryable: false };
+      }
       return { ok: false, message: `Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`, retryable: false };
     }
     try {

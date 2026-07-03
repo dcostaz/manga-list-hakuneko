@@ -428,3 +428,23 @@ test('read - JSON parse failure surfaces an error, not empty results', async () 
     await env.cleanup();
   }
 });
+
+test('read - bookmarksPath pointing at a folder surfaces a clear error, not empty results', async () => {
+  const env = await setupAdapter({ writeFiles: false });
+  try {
+    const adapter = await HakunekoAdapter.init({
+      context,
+      serviceSettings: {
+        downloadBaseDir: env.baseDir,
+        bookmarksPath: env.baseDir, // a directory, not a file
+        chaptermarksPath: env.chaptermarksPath
+      }
+    });
+    const page = await adapter.listEntries();
+    assert.equal(page.status, 'error');
+    assert.equal(page.retryable, false);
+    assert.match(page.message, /is a folder, not a file/);
+  } finally {
+    await env.cleanup();
+  }
+});
