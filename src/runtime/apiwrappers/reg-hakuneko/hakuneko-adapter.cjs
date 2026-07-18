@@ -404,88 +404,115 @@ class HakunekoAdapter {
   }
 
   /**
-   * Push operation. Writes back to Hakuneko files.
-   * - On chapter change: upsert the chaptermark for (mangaID, connectorID).
-   * - On first link: append a bookmark if one does not already exist (idempotent).
-   * All writes are atomic (.tmp → rename).
+   * Push operation. Writes the chaptermark for (mangaID, connectorID) — the only
+   * property Hakuneko syncs (R2: its ReadingList is single and classification-less,
+   * so there is no status to move and no list to invent one for).
+   *
+   * No-append mode (Plan-2026Q3-hakuneko-progress-sync, vote-of-confidence V3):
+   * this method never creates a bookmark as a side effect of a progress push —
+   * that would make an ordinary chapter sync silently perform Subscribing's
+   * membership act. Bookmark creation belongs to `subscribe()` alone, the
+   * explicit Join-List-equivalent call. Matches the unified
+   * `pushProgress(id, {status, chapter, volume, rating}) -> {success, updatedFields, error}`
+   * contract both installed trackers already implement.
    *
    * @param {string} pluginEntryId
    * @param {object} [progress]
-   * @param {string | number | null} [progress.currentChapter] - Chapter title or number to write.
-   * @param {string} [progress.title] - Display title for first-link bookmark creation.
-   * @returns {Promise<{ status: 'ok', bookmarkAppended: boolean, chaptermarkWritten: boolean } | { status: 'error', message: string, retryable: boolean }>}
+   * @param {number | null} [progress.chapter] - Chapter number to write.
+   * @returns {Promise<{ success: true, updatedFields: string[] } | { success: false, error: string }>}
    */
   async pushProgress(pluginEntryId, progress = {}) {
     const decoded = this._decodeEntryId(pluginEntryId);
     if (!decoded) {
-      return { status: 'error', message: `Invalid pluginEntryId: ${pluginEntryId}`, retryable: false };
+      return { success: false, error: `Invalid pluginEntryId: ${pluginEntryId}` };
     }
 
     const prog = progress && typeof progress === 'object' ? progress : {};
+    const chapterTitle = this._formatChapterTitle(prog.chapter);
+    if (chapterTitle === null) {
+      return { success: false, error: 'Hakuneko only supports chapter progress; no chapter value was provided.' };
+    }
+
+    const chaptermarksRead = await this._readArrayFile(this._chaptermarksPath);
+    if (!chaptermarksRead.ok) {
+      return { success: false, error: chaptermarksRead.message };
+    }
+    const chaptermarks = chaptermarksRead.data;
+
+    const mangaPath = decoded.mangaKey.endsWith('/') ? decoded.mangaKey : `${decoded.mangaKey}/`;
+    const chapterID = `${mangaPath}${chapterTitle}/`;
+    const existing = chaptermarks.find((cm) =>
+      cm && cm.mangaID === decoded.mangaKey && cm.connectorID === decoded.connector);
+    if (existing) {
+      existing.chapterID = chapterID;
+      existing.chapterTitle = chapterTitle;
+    } else {
+      chaptermarks.push({
+        mangaID: decoded.mangaKey,
+        connectorID: decoded.connector,
+        chapterID,
+        chapterTitle,
+      });
+    }
+
+    try {
+      await this._writeJsonAtomic(this._chaptermarksPath, chaptermarks);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    return { success: true, updatedFields: ['chapter'] };
+  }
+
+  /**
+   * Membership establishment — the Join-List equivalent for a file source
+   * (Plan-2026Q3-hakuneko-progress-sync, Phase E2). Idempotently ensures the
+   * bookmark row exists; in the ordinary case it already does (`findMatches`/
+   * `search` only ever surface pluginEntryIds sourced from existing bookmark
+   * rows), so this call most often just confirms presence. Mirrors the
+   * installed trackers' `subscribe(pluginEntryId, context) -> {success, mode,
+   * listId?}` contract exactly, so the host's generic subscribe handling and
+   * the Manage Subscriptions "Join List" control need no source-specific
+   * branching — Hakuneko decides how to satisfy the call, mangalist stays
+   * transparent.
+   *
+   * @param {string} pluginEntryId
+   * @param {object} [context] - Unused (Hakuneko has no status/rating concept); accepted for contract parity.
+   * @returns {Promise<{ success: true, mode: 'confirmed' | 'created' } | { success: false, error: string }>}
+   */
+  async subscribe(pluginEntryId, context = {}) {
+    const decoded = this._decodeEntryId(pluginEntryId);
+    if (!decoded) {
+      return { success: false, error: `Invalid pluginEntryId: ${pluginEntryId}` };
+    }
 
     const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
     if (!bookmarksRead.ok) {
-      return { status: 'error', message: bookmarksRead.message, retryable: false };
-    }
-    const chaptermarksRead = await this._readArrayFile(this._chaptermarksPath);
-    if (!chaptermarksRead.ok) {
-      return { status: 'error', message: chaptermarksRead.message, retryable: false };
+      return { success: false, error: bookmarksRead.message };
     }
 
     const bookmarks = bookmarksRead.data;
-    const chaptermarks = chaptermarksRead.data;
-
-    let bookmarkAppended = false;
-    let chaptermarkWritten = false;
-
-    // First-link: ensure a bookmark exists (idempotent).
-    const existingBookmark = bookmarks.find((entry) =>
+    const existing = bookmarks.find((entry) =>
       this._isValidBookmark(entry)
       && entry.key.connector === decoded.connector
       && entry.key.manga === decoded.mangaKey);
 
-    if (!existingBookmark) {
-      const title = typeof prog.title === 'string' && prog.title.trim() ? prog.title : decoded.mangaKey;
-      bookmarks.push({
-        title: { connector: this._connectorLabel(decoded.connector), manga: title },
-        key: { connector: decoded.connector, manga: decoded.mangaKey },
-      });
-      bookmarkAppended = true;
+    if (existing) {
+      return { success: true, mode: 'confirmed' };
     }
 
-    // Chapter update: upsert chaptermark.
-    const chapterTitle = this._formatChapterTitle(prog.currentChapter);
-    if (chapterTitle !== null) {
-      const mangaPath = decoded.mangaKey.endsWith('/') ? decoded.mangaKey : `${decoded.mangaKey}/`;
-      const chapterID = `${mangaPath}${chapterTitle}/`;
-      const existing = chaptermarks.find((cm) =>
-        cm && cm.mangaID === decoded.mangaKey && cm.connectorID === decoded.connector);
-      if (existing) {
-        existing.chapterID = chapterID;
-        existing.chapterTitle = chapterTitle;
-      } else {
-        chaptermarks.push({
-          mangaID: decoded.mangaKey,
-          connectorID: decoded.connector,
-          chapterID,
-          chapterTitle,
-        });
-      }
-      chaptermarkWritten = true;
-    }
+    bookmarks.push({
+      title: { connector: this._connectorLabel(decoded.connector), manga: decoded.mangaKey },
+      key: { connector: decoded.connector, manga: decoded.mangaKey },
+    });
 
     try {
-      if (bookmarkAppended) {
-        await this._writeJsonAtomic(this._bookmarksPath, bookmarks);
-      }
-      if (chaptermarkWritten) {
-        await this._writeJsonAtomic(this._chaptermarksPath, chaptermarks);
-      }
+      await this._writeJsonAtomic(this._bookmarksPath, bookmarks);
     } catch (error) {
-      return { status: 'error', message: error instanceof Error ? error.message : String(error), retryable: false };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
 
-    return { status: 'ok', bookmarkAppended, chaptermarkWritten };
+    return { success: true, mode: 'created' };
   }
 
   // ── workspace search (NOT used for linking) ──

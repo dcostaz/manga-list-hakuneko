@@ -326,9 +326,9 @@ test('pushProgress - chapter change updates chaptermark, replaces not duplicates
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const result = await env.adapter.pushProgress(id, { currentChapter: 'Chapter 400' });
-    assert.equal(result.status, 'ok');
-    assert.equal(result.chaptermarkWritten, true);
+    const result = await env.adapter.pushProgress(id, { chapter: 400 });
+    assert.equal(result.success, true);
+    assert.deepEqual(result.updatedFields, ['chapter']);
 
     const raw = JSON.parse(await fs.readFile(env.chaptermarksPath, 'utf8'));
     const matching = raw.filter((cm) => cm.mangaID === '/manga/legend-of-star-general/' && cm.connectorID === 'manhuaus');
@@ -340,24 +340,67 @@ test('pushProgress - chapter change updates chaptermark, replaces not duplicates
   }
 });
 
-test('pushProgress - first link appends bookmark, idempotent on second call', async () => {
+test('pushProgress - never appends a bookmark (no-append mode, V3); declines when no chapter given', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('mangalist', '/manga/new-series');
 
-    const first = await env.adapter.pushProgress(id, { title: 'New Series', currentChapter: 'Chapter 1' });
-    assert.equal(first.status, 'ok');
-    assert.equal(first.bookmarkAppended, true);
+    const result = await env.adapter.pushProgress(id, { rating: 8 });
+    assert.equal(result.success, false);
+    assert.match(result.error, /only supports chapter progress/);
+
+    const raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
+    assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 0);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('subscribe - existing bookmark confirms membership without writing', async () => {
+  const env = await setupAdapter();
+  try {
+    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const before = await fs.readFile(env.bookmarksPath, 'utf8');
+
+    const result = await env.adapter.subscribe(id);
+    assert.equal(result.success, true);
+    assert.equal(result.mode, 'confirmed');
+
+    const after = await fs.readFile(env.bookmarksPath, 'utf8');
+    assert.equal(after, before);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('subscribe - missing bookmark is created, idempotent on second call', async () => {
+  const env = await setupAdapter();
+  try {
+    const id = env.adapter._encodeEntryId('mangalist', '/manga/new-series');
+
+    const first = await env.adapter.subscribe(id);
+    assert.equal(first.success, true);
+    assert.equal(first.mode, 'created');
 
     let raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
     assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 1);
 
-    const second = await env.adapter.pushProgress(id, { title: 'New Series', currentChapter: 'Chapter 2' });
-    assert.equal(second.status, 'ok');
-    assert.equal(second.bookmarkAppended, false);
+    const second = await env.adapter.subscribe(id);
+    assert.equal(second.success, true);
+    assert.equal(second.mode, 'confirmed');
 
     raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
     assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 1);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('subscribe - invalid pluginEntryId errors', async () => {
+  const env = await setupAdapter();
+  try {
+    const result = await env.adapter.subscribe('not-a-valid-id');
+    assert.equal(result.success, false);
   } finally {
     await env.cleanup();
   }
