@@ -404,6 +404,66 @@ class HakunekoAdapter {
   }
 
   /**
+   * Batch pull read (Plan-2026Q3-hakuneko-progress-sync, Phase A / Q6: "batch read
+   * performance"). One read of bookmarks + chaptermarks, one pass — returns raw,
+   * unparsed per-entry results. No parsing, no bucket classification: the wrapper
+   * stays transport, the host owns all semantics (chapter-float parsing, the
+   * five-bucket split, dry-run vs apply).
+   *
+   * Two calling shapes from the same one-read pass:
+   * - `entries` omitted/empty: full discovery — every valid bookmark currently in
+   *   Hakuneko's file, `inList: true` for all (trivially — they're sourced from
+   *   the list itself). This is what lets the host find `new`-bucket entries (no
+   *   LocalTracker counterpart yet) without a paginated `listEntries()` walk that
+   *   would re-read both files once per page.
+   * - `entries` non-empty: narrowed to exactly those pluginEntryIds (the host's
+   *   already-linked references) — `inList: false` for any that are no longer
+   *   present in Hakuneko's bookmarks file (removed there since linking), instead
+   *   of silently omitting them.
+   *
+   * @param {string[]} [entries] - pluginEntryIds to narrow to; empty/omitted = all.
+   * @returns {Promise<Array<{ pluginEntryId: string, chapterTitle: string | null, inList: boolean }>> | { status: 'error', message: string, retryable: boolean }>}
+   */
+  async pullProgressBatch(entries = []) {
+    const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
+    if (!bookmarksRead.ok) {
+      return { status: 'error', message: bookmarksRead.message, retryable: false };
+    }
+    const chaptermarksRead = await this._readArrayFile(this._chaptermarksPath);
+    if (!chaptermarksRead.ok) {
+      return { status: 'error', message: chaptermarksRead.message, retryable: false };
+    }
+
+    const chapterByKey = this._indexChaptermarks(chaptermarksRead.data);
+    const bookmarkByEntryId = new Map();
+    for (const bookmark of bookmarksRead.data) {
+      if (!this._isValidBookmark(bookmark)) continue;
+      const pluginEntryId = this._encodeEntryId(bookmark.key.connector, bookmark.key.manga);
+      bookmarkByEntryId.set(pluginEntryId, bookmark);
+    }
+
+    /**
+     * @param {string} pluginEntryId
+     * @param {object} bookmark
+     * @returns {{ pluginEntryId: string, chapterTitle: string | null, inList: boolean }}
+     */
+    const toResult = (pluginEntryId, bookmark) => {
+      if (!bookmark) {
+        return { pluginEntryId, chapterTitle: null, inList: false };
+      }
+      const chaptermark = chapterByKey.get(`${bookmark.key.connector}::${bookmark.key.manga}`);
+      const chapterTitle = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
+      return { pluginEntryId, chapterTitle, inList: true };
+    };
+
+    const requested = Array.isArray(entries) ? entries.filter((id) => typeof id === 'string' && id) : [];
+    if (requested.length === 0) {
+      return Array.from(bookmarkByEntryId.entries()).map(([pluginEntryId, bookmark]) => toResult(pluginEntryId, bookmark));
+    }
+    return requested.map((pluginEntryId) => toResult(pluginEntryId, bookmarkByEntryId.get(pluginEntryId)));
+  }
+
+  /**
    * Push operation. Writes the chaptermark for (mangaID, connectorID) — the only
    * property Hakuneko syncs (R2: its ReadingList is single and classification-less,
    * so there is no status to move and no list to invent one for).

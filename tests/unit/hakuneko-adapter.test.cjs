@@ -322,6 +322,123 @@ test('pullProgress - no bookmark row is skipped', async () => {
   }
 });
 
+// Plan-2026Q3-hakuneko-progress-sync, Phase A / Q6 ("batch read performance"): one
+// read of bookmarks + chaptermarks, one pass, raw per-entry results — no parsing,
+// no bucket classification (the host owns that).
+
+test('pullProgressBatch - omitted entries returns every valid bookmark (full discovery for the "new" bucket)', async () => {
+  const env = await setupAdapter();
+  try {
+    const results = await env.adapter.pullProgressBatch();
+    assert.equal(results.length, BOOKMARKS.length);
+    assert.ok(results.every((r) => r.inList === true));
+
+    const byId = new Map(results.map((r) => [r.pluginEntryId, r]));
+    const starGeneralId = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const onePieceId = env.adapter._encodeEntryId('mangadex', 'https://mangadex.org/title/one-piece');
+    const soloLevelingId = env.adapter._encodeEntryId('mangalist', '/manga/solo-leveling');
+
+    assert.equal(byId.get(starGeneralId).chapterTitle, 'Chapter 372');
+    assert.equal(byId.get(onePieceId).chapterTitle, 'Chapter 1100');
+    // Solo Leveling has a bookmark but no chaptermark fixture — raw null, not
+    // defaulted (Q2: "no default" is the wrapper's job to not pre-empt either).
+    assert.equal(byId.get(soloLevelingId).chapterTitle, null);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - empty array behaves the same as omitted (full discovery)', async () => {
+  const env = await setupAdapter();
+  try {
+    const results = await env.adapter.pullProgressBatch([]);
+    assert.equal(results.length, BOOKMARKS.length);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - narrowed to specific entries returns exactly those, in the requested order', async () => {
+  const env = await setupAdapter();
+  try {
+    const onePieceId = env.adapter._encodeEntryId('mangadex', 'https://mangadex.org/title/one-piece');
+    const starGeneralId = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const results = await env.adapter.pullProgressBatch([onePieceId, starGeneralId]);
+
+    assert.equal(results.length, 2);
+    assert.equal(results[0].pluginEntryId, onePieceId);
+    assert.equal(results[0].chapterTitle, 'Chapter 1100');
+    assert.equal(results[0].inList, true);
+    assert.equal(results[1].pluginEntryId, starGeneralId);
+    assert.equal(results[1].chapterTitle, 'Chapter 372');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - a requested entry no longer in Hakuneko\'s file reports inList:false, not omitted', async () => {
+  const env = await setupAdapter();
+  try {
+    const removedId = env.adapter._encodeEntryId('nonexistent-connector', '/manga/removed-from-hakuneko/');
+    const starGeneralId = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const results = await env.adapter.pullProgressBatch([removedId, starGeneralId]);
+
+    assert.equal(results.length, 2, 'the vanished entry must still appear in the results, not be silently dropped');
+    assert.deepEqual(results[0], { pluginEntryId: removedId, chapterTitle: null, inList: false });
+    assert.equal(results[1].inList, true);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - skips malformed bookmark rows the same way listEntries does', async () => {
+  const env = await setupAdapter({
+    bookmarks: [
+      ...BOOKMARKS,
+      { title: { connector: 'Broken' } }, // missing key entirely
+      null,
+    ],
+  });
+  try {
+    const results = await env.adapter.pullProgressBatch();
+    assert.equal(results.length, BOOKMARKS.length);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - surfaces a read error the same way listEntries does, not empty results', async () => {
+  const env = await setupAdapter();
+  try {
+    await fs.writeFile(env.bookmarksPath, '{ not valid json', 'utf8');
+    const result = await env.adapter.pullProgressBatch();
+    assert.equal(result.status, 'error');
+    assert.equal(result.retryable, false);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pullProgressBatch - functions correctly at ~2000 entries in one pass (checklist: verified at scale)', async () => {
+  const bigBookmarks = Array.from({ length: 2000 }, (_, i) => ({
+    title: { connector: 'bulk', manga: `Series ${i}` },
+    key: { connector: 'bulk', manga: `/manga/series-${i}/` },
+  }));
+  const bigChaptermarks = bigBookmarks
+    .filter((_, i) => i % 3 !== 0) // leave a third with no chaptermark (raw null cases)
+    .map((b) => ({ mangaID: b.key.manga, connectorID: b.key.connector, chapterID: `${b.key.manga}Chapter ${b.title.manga}/`, chapterTitle: `Chapter ${b.title.manga.split(' ')[1]}` }));
+
+  const env = await setupAdapter({ bookmarks: bigBookmarks, chaptermarks: bigChaptermarks });
+  try {
+    const results = await env.adapter.pullProgressBatch();
+    assert.equal(results.length, 2000);
+    const withChapter = results.filter((r) => r.chapterTitle !== null);
+    assert.equal(withChapter.length, bigChaptermarks.length);
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test('pushProgress - chapter change updates chaptermark, replaces not duplicates', async () => {
   const env = await setupAdapter();
   try {
