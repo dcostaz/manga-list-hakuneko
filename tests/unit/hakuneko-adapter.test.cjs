@@ -343,6 +343,12 @@ test('pullProgressBatch - omitted entries returns every valid bookmark (full dis
     // Solo Leveling has a bookmark but no chaptermark fixture — raw null, not
     // defaulted (Q2: "no default" is the wrapper's job to not pre-empt either).
     assert.equal(byId.get(soloLevelingId).chapterTitle, null);
+
+    // title/connectorLabel (owner scenario extension, 2026-07-19): free to
+    // attach in full-discovery mode since the bookmark is already in memory —
+    // the host's "new" bucket needs a real title to be reviewable at all.
+    assert.equal(byId.get(starGeneralId).title, 'Legend of Star General');
+    assert.equal(byId.get(starGeneralId).connectorLabel, 'ManhuaUS');
   } finally {
     await env.cleanup();
   }
@@ -384,7 +390,7 @@ test('pullProgressBatch - a requested entry no longer in Hakuneko\'s file report
     const results = await env.adapter.pullProgressBatch([removedId, starGeneralId]);
 
     assert.equal(results.length, 2, 'the vanished entry must still appear in the results, not be silently dropped');
-    assert.deepEqual(results[0], { pluginEntryId: removedId, chapterTitle: null, inList: false });
+    assert.deepEqual(results[0], { pluginEntryId: removedId, chapterTitle: null, inList: false, title: null, connectorLabel: null });
     assert.equal(results[1].inList, true);
   } finally {
     await env.cleanup();

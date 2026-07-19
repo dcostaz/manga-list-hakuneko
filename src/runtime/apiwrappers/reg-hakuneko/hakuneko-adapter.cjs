@@ -415,14 +415,19 @@ class HakunekoAdapter {
    *   Hakuneko's file, `inList: true` for all (trivially — they're sourced from
    *   the list itself). This is what lets the host find `new`-bucket entries (no
    *   LocalTracker counterpart yet) without a paginated `listEntries()` walk that
-   *   would re-read both files once per page.
+   *   would re-read both files once per page. `title`/`connectorLabel` are
+   *   included here (Q7: the review needs enough properties to be reviewable) —
+   *   free to attach since the bookmark object is already in memory for this
+   *   pass, not an extra read.
    * - `entries` non-empty: narrowed to exactly those pluginEntryIds (the host's
    *   already-linked references) — `inList: false` for any that are no longer
    *   present in Hakuneko's bookmarks file (removed there since linking), instead
-   *   of silently omitting them.
+   *   of silently omitting them. `title`/`connectorLabel` are `null` for those
+   *   (nothing to source them from); the host already has a title on file for a
+   *   linked entry, so this mode doesn't need it repeated.
    *
    * @param {string[]} [entries] - pluginEntryIds to narrow to; empty/omitted = all.
-   * @returns {Promise<Array<{ pluginEntryId: string, chapterTitle: string | null, inList: boolean }>> | { status: 'error', message: string, retryable: boolean }>}
+   * @returns {Promise<Array<{ pluginEntryId: string, chapterTitle: string | null, inList: boolean, title: string | null, connectorLabel: string | null }>> | { status: 'error', message: string, retryable: boolean }>}
    */
   async pullProgressBatch(entries = []) {
     const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
@@ -444,16 +449,22 @@ class HakunekoAdapter {
 
     /**
      * @param {string} pluginEntryId
-     * @param {object} bookmark
-     * @returns {{ pluginEntryId: string, chapterTitle: string | null, inList: boolean }}
+     * @param {object} [bookmark]
+     * @returns {{ pluginEntryId: string, chapterTitle: string | null, inList: boolean, title: string | null, connectorLabel: string | null }}
      */
     const toResult = (pluginEntryId, bookmark) => {
       if (!bookmark) {
-        return { pluginEntryId, chapterTitle: null, inList: false };
+        return { pluginEntryId, chapterTitle: null, inList: false, title: null, connectorLabel: null };
       }
       const chaptermark = chapterByKey.get(`${bookmark.key.connector}::${bookmark.key.manga}`);
       const chapterTitle = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
-      return { pluginEntryId, chapterTitle, inList: true };
+      return {
+        pluginEntryId,
+        chapterTitle,
+        inList: true,
+        title: bookmark.title.manga,
+        connectorLabel: bookmark.title.connector,
+      };
     };
 
     const requested = Array.isArray(entries) ? entries.filter((id) => typeof id === 'string' && id) : [];
