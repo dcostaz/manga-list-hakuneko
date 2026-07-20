@@ -16,6 +16,7 @@ which enforces no such coupling.
 - `tracker.file` — bidirectional file sync (`pullProgress` / `pushProgress`)
 - `workspace.list` — paginated bookmark workspace (`listEntries`)
 - `workspace.get` — entry detail (`getEntry`)
+- `plugin.cardBadge` — live bookmark-card badge status (`queryBatch`)
 
 ## Data model
 

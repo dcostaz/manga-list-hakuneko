@@ -13,6 +13,7 @@ const SERVICE_NAME = 'hakuneko';
 /** @typedef {import('../../../../types/plugintypedefs').PluginLinkContribution} PluginLinkContribution */
 /** @typedef {import('../../../../types/plugintypedefs').PluginWorkspaceEntry} PluginWorkspaceEntry */
 /** @typedef {import('../../../../types/plugintypedefs').PluginEntryPage} PluginEntryPage */
+/** @typedef {import('../../../../types/plugintypedefs').PluginCardSummary} PluginCardSummary */
 /** @typedef {import('../../../../types/plugincontexttypedefs').PluginContextLike} PluginContextLike */
 
 /**
@@ -30,7 +31,7 @@ const SERVICE_NAME = 'hakuneko';
  * - pluginEntryId: `${key.connector}::${encodeURIComponent(key.manga)}`
  * - folder:        `{downloadBaseDir}/{title.manga}/`
  *
- * Capabilities: tracker.file, workspace.list, workspace.get
+ * Capabilities: tracker.file, workspace.list, workspace.get, plugin.cardBadge
  */
 class HakunekoAdapter {
   /**
@@ -87,7 +88,7 @@ class HakunekoAdapter {
   get pluginType() { return Object.freeze(['adapter']); }
 
   /** @returns {string[]} */
-  get capabilities() { return Object.freeze(['tracker.file', 'workspace.list', 'workspace.get']); }
+  get capabilities() { return Object.freeze(['tracker.file', 'workspace.list', 'workspace.get', 'plugin.cardBadge']); }
 
   /** @returns {string} */
   get contractVersion() {
@@ -472,6 +473,54 @@ class HakunekoAdapter {
       return Array.from(bookmarkByEntryId.entries()).map(([pluginEntryId, bookmark]) => toResult(pluginEntryId, bookmark));
     }
     return requested.map((pluginEntryId) => toResult(pluginEntryId, bookmarkByEntryId.get(pluginEntryId)));
+  }
+
+  // ── plugin.cardBadge ──
+
+  /**
+   * Batch badge status for linked Hakuneko entries. The badge state is live
+   * membership in the Hakuneko bookmarks file: present entries are active;
+   * requested entries missing from the file are stale links.
+   *
+   * @param {string[]} pluginEntryIds
+   * @returns {Promise<Record<string, PluginCardSummary>>}
+   */
+  async queryBatch(pluginEntryIds) {
+    /** @type {Record<string, PluginCardSummary>} */
+    const out = {};
+    const requested = Array.isArray(pluginEntryIds)
+      ? pluginEntryIds.filter((id) => typeof id === 'string' && id)
+      : [];
+    if (requested.length === 0) return out;
+
+    const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
+    if (!bookmarksRead.ok) {
+      return out;
+    }
+
+    const bookmarkByEntryId = new Map();
+    for (const bookmark of bookmarksRead.data) {
+      if (!this._isValidBookmark(bookmark)) continue;
+      const pluginEntryId = this._encodeEntryId(bookmark.key.connector, bookmark.key.manga);
+      bookmarkByEntryId.set(pluginEntryId, bookmark);
+    }
+
+    for (const pluginEntryId of requested) {
+      const bookmark = bookmarkByEntryId.get(pluginEntryId);
+      if (bookmark) {
+        out[pluginEntryId] = {
+          linkState: 'active',
+          label: `${bookmark.title.connector}: ${bookmark.title.manga}`,
+        };
+      } else {
+        out[pluginEntryId] = {
+          linkState: 'error',
+          label: 'Missing from Hakuneko bookmarks',
+        };
+      }
+    }
+
+    return out;
   }
 
   /**

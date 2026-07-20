@@ -72,7 +72,7 @@ test('identity - static + instance pluginName, type, capabilities', async () => 
   try {
     assert.equal(env.adapter.pluginName, 'hakuneko');
     assert.deepEqual([...env.adapter.pluginType], ['adapter']);
-    assert.deepEqual([...env.adapter.capabilities], ['tracker.file', 'workspace.list', 'workspace.get']);
+    assert.deepEqual([...env.adapter.capabilities], ['tracker.file', 'workspace.list', 'workspace.get', 'plugin.cardBadge']);
   } finally {
     await env.cleanup();
   }
@@ -223,6 +223,57 @@ test('buildLinkContribution - null currentChapter when no chaptermark', async ()
     const id = env.adapter._encodeEntryId('mangalist', '/manga/solo-leveling');
     const contribution = await env.adapter.buildLinkContribution(id);
     assert.equal(contribution.currentChapter, null);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('queryBatch - returns active summaries for bookmark entries', async () => {
+  const env = await setupAdapter();
+  try {
+    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const summaries = await env.adapter.queryBatch([id]);
+
+    assert.deepEqual(summaries[id], {
+      linkState: 'active',
+      label: 'ManhuaUS: Legend of Star General',
+    });
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('queryBatch - marks requested entries missing from bookmarks as error', async () => {
+  const env = await setupAdapter();
+  try {
+    const missingId = env.adapter._encodeEntryId('mangalist', '/manga/not-in-hakuneko');
+    const summaries = await env.adapter.queryBatch([missingId]);
+
+    assert.deepEqual(summaries[missingId], {
+      linkState: 'error',
+      label: 'Missing from Hakuneko bookmarks',
+    });
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('queryBatch - returns empty object for empty input', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.deepEqual(await env.adapter.queryBatch([]), {});
+    assert.deepEqual(await env.adapter.queryBatch(), {});
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('queryBatch - degrades to stored badge state on bookmark parse failure', async () => {
+  const env = await setupAdapter();
+  try {
+    await fs.writeFile(env.bookmarksPath, '{not json', 'utf8');
+    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    assert.deepEqual(await env.adapter.queryBatch([id]), {});
   } finally {
     await env.cleanup();
   }
