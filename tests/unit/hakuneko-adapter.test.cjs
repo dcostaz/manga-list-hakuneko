@@ -322,7 +322,7 @@ test('listEntries - pagination and sort by mangaTitle', async () => {
   }
 });
 
-test('getEntry - resolves by pluginEntryId', async () => {
+test('getEntry - resolves by pluginEntryId; detail rows carry folderPath + folderMatch', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('mangadex', 'https://mangadex.org/title/one-piece');
@@ -330,6 +330,29 @@ test('getEntry - resolves by pluginEntryId', async () => {
     assert.equal(entry.pluginEntryId, id);
     assert.equal(entry.fields.mangaTitle.value, 'One Piece');
     assert.equal(entry.fields.chapterTitle.value, 'Chapter 1100');
+
+    // folder detail — the derived folder does not exist under the temp baseDir here.
+    assert.equal(entry.fields.folderPath.value, `${env.baseDir}/One Piece/`);
+    assert.equal(entry.fields.folderMatch.value, 'missing');
+
+    // create the folder → getEntry now reports it present.
+    await fs.mkdir(`${env.baseDir}/One Piece`);
+    const entry2 = await env.adapter.getEntry(id);
+    assert.equal(entry2.fields.folderMatch.value, 'present');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('listEntries - list rows do NOT carry the per-row folder stat (kept cheap for the full-list map)', async () => {
+  const env = await setupAdapter();
+  try {
+    const page = await env.adapter.listEntries({}, { page: 1, pageSize: 50 });
+    assert.ok(page.entries.length > 0);
+    for (const row of page.entries) {
+      assert.equal(row.fields.folderPath, undefined);
+      assert.equal(row.fields.folderMatch, undefined);
+    }
   } finally {
     await env.cleanup();
   }

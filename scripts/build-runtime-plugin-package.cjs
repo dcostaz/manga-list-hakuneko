@@ -19,6 +19,31 @@ const FILE_MAPPINGS = [
   { src: path.join('src', 'runtime', 'images', 'hakuneko-icon.svg'), dest: 'images/hakuneko-icon.svg' },
 ];
 
+// host-capability-contract.md §4.2: the whole web/ tree (the workspace.entry surface) is copied
+// recursively — a plugin author can add a script/stylesheet under web/ without touching this file.
+const WEB_SOURCE_DIR = path.join('src', 'runtime', 'web');
+const WEB_DEST_PREFIX = 'web';
+
+/**
+ * Recursively list every file under `dirAbs` as `{ src, dest }` rows with POSIX zip-relative
+ * `dest` paths under `destPrefix`. Returns [] when the directory is absent.
+ * @param {string} dirAbs
+ * @param {string} destPrefix
+ * @returns {Array<{ src: string, dest: string }>}
+ */
+function collectTree(dirAbs, destPrefix) {
+  if (!fs.existsSync(dirAbs)) return [];
+  /** @type {Array<{ src: string, dest: string }>} */
+  const out = [];
+  for (const entry of fs.readdirSync(dirAbs, { withFileTypes: true })) {
+    const childAbs = path.join(dirAbs, entry.name);
+    const childDest = `${destPrefix}/${entry.name}`;
+    if (entry.isDirectory()) out.push(...collectTree(childAbs, childDest));
+    else if (entry.isFile()) out.push({ src: childAbs, dest: childDest });
+  }
+  return out;
+}
+
 function parseCliArgs(argv) {
   let outputPath = null;
   let hostApiVersion = null;
@@ -80,8 +105,15 @@ function buildHakunekoPackage(options = {}) {
   const output = fs.createWriteStream(outputPath);
   const archive = archiver('zip', { zlib: { level: 9 } });
 
+  const webFiles = collectTree(path.join(ROOT_DIR, WEB_SOURCE_DIR), WEB_DEST_PREFIX);
+
   return new Promise((resolve, reject) => {
-    output.on('close', () => resolve({ outputPath, manifest, fileCount: FILE_MAPPINGS.length + 1 }));
+    output.on('close', () => resolve({
+      outputPath,
+      manifest,
+      fileCount: FILE_MAPPINGS.length + webFiles.length + 1,
+      webFiles: webFiles.map((f) => f.dest)
+    }));
     archive.on('warning', (e) => { if (e.code === 'ENOENT') { console.warn('Warning:', e.message); return; } reject(e); });
     archive.on('error', reject);
     archive.pipe(output);
@@ -93,6 +125,8 @@ function buildHakunekoPackage(options = {}) {
       if (!fs.existsSync(fullSource)) { reject(new Error(`Missing source file: ${file.src}`)); return; }
       archive.file(fullSource, { name: file.dest });
     }
+
+    for (const file of webFiles) archive.file(file.src, { name: file.dest });
 
     archive.finalize().catch(reject);
   });
@@ -112,4 +146,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildManifest, buildHakunekoPackage };
+module.exports = { buildManifest, buildHakunekoPackage, collectTree };

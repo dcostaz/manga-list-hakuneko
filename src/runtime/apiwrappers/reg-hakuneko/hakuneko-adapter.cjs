@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const HakunekoSettings = require(path.join(__dirname, 'hakuneko-settings.cjs'));
 
 const SERVICE_NAME = 'hakuneko';
@@ -274,7 +275,7 @@ class HakunekoAdapter {
 
     if (!bookmark) return null;
 
-    return this._buildEntry(bookmark, this._indexChaptermarks(chaptermarksRead.data));
+    return this._buildEntry(bookmark, this._indexChaptermarks(chaptermarksRead.data), true);
   }
 
   // ── Linking (folder-based; binary confidence) ──
@@ -941,18 +942,34 @@ class HakunekoAdapter {
   /**
    * @param {object} bookmark
    * @param {Map<string, object>} chapterByKey
+   * @param {boolean} [detailed] - when true, also resolves the derived folder + whether it exists
+   *   on disk (a per-row `fs` stat — cheap for one entry, deliberately skipped for the full-list
+   *   `listEntries` map). GAP-HK-01's `hasMatchingFolder` fact, surfaced here for `getEntry`.
    * @returns {PluginWorkspaceEntry}
    */
-  _buildEntry(bookmark, chapterByKey) {
+  _buildEntry(bookmark, chapterByKey, detailed = false) {
     const chaptermark = chapterByKey.get(`${bookmark.key.connector}::${bookmark.key.manga}`);
     const chapterTitle = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
+    /** @type {Record<string, { type: string, value: unknown }>} */
+    const fields = {
+      mangaTitle: { type: 'text', value: bookmark.title.manga },
+      connectorLabel: { type: 'text', value: bookmark.title.connector },
+      chapterTitle: { type: 'text', value: chapterTitle },
+    };
+    if (detailed) {
+      const folderPath = this._deriveFolder(bookmark.title.manga);
+      let present = false;
+      try {
+        present = fsSync.existsSync(folderPath) && fsSync.statSync(folderPath).isDirectory();
+      } catch {
+        present = false;
+      }
+      fields.folderPath = { type: 'text', value: folderPath };
+      fields.folderMatch = { type: 'status', value: present ? 'present' : 'missing' };
+    }
     return {
       pluginEntryId: this._encodeEntryId(bookmark.key.connector, bookmark.key.manga),
-      fields: {
-        mangaTitle: { type: 'text', value: bookmark.title.manga },
-        connectorLabel: { type: 'text', value: bookmark.title.connector },
-        chapterTitle: { type: 'text', value: chapterTitle },
-      },
+      fields,
     };
   }
 
