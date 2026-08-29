@@ -9,6 +9,7 @@ const os = require('os');
 const HakunekoAdapter = require(path.join(
   __dirname, '..', '..', 'src', 'runtime', 'apiwrappers', 'reg-hakuneko', 'hakuneko-adapter.cjs',
 ));
+const manifest = require(path.join(__dirname, '..', '..', 'plugin-package.json'));
 
 /** Minimal host context mirroring PluginContextLike. */
 const context = {
@@ -66,13 +67,24 @@ async function setupAdapter(opts = {}) {
   };
 }
 
-test('identity - static + instance pluginName, type, capabilities', async () => {
+test('identity - static + instance pluginName, type', async () => {
   assert.equal(HakunekoAdapter.pluginName, 'hakuneko');
   const env = await setupAdapter();
   try {
     assert.equal(env.adapter.pluginName, 'hakuneko');
     assert.deepEqual([...env.adapter.pluginType], ['adapter']);
-    assert.deepEqual([...env.adapter.capabilities], ['tracker.file', 'workspace.list', 'workspace.get', 'plugin.cardBadge']);
+    assert.ok(Array.isArray(env.adapter.capabilities) && env.adapter.capabilities.length > 0);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+// The wrapper's own get capabilities() getter and plugin-package.json's capabilities[] must not
+// drift apart (MangaDex shipped exactly that bug). Guards Phase 9's manifest flip.
+test('capabilities getter matches plugin-package.json capabilities[]', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.deepEqual([...env.adapter.capabilities].sort(), [...manifest.capabilities].sort());
   } finally {
     await env.cleanup();
   }
@@ -496,13 +508,15 @@ test('pullProgressBatch - functions correctly at ~2000 entries in one pass (chec
   }
 });
 
-test('pushProgress - chapter change updates chaptermark, replaces not duplicates', async () => {
+test('pushProgress - array in, array out; chapter change updates chaptermark, replaces not duplicates', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const result = await env.adapter.pushProgress(id, { chapter: 400 });
-    assert.equal(result.success, true);
-    assert.deepEqual(result.updatedFields, ['chapter']);
+    const results = await env.adapter.pushProgress([{ pluginEntryId: id, chapter: 400 }]);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].pluginEntryId, id);
+    assert.equal(results[0].success, true);
+    assert.deepEqual(results[0].updatedFields, ['chapter']);
 
     const raw = JSON.parse(await fs.readFile(env.chaptermarksPath, 'utf8'));
     const matching = raw.filter((cm) => cm.mangaID === '/manga/legend-of-star-general/' && cm.connectorID === 'manhuaus');
@@ -514,15 +528,38 @@ test('pushProgress - chapter change updates chaptermark, replaces not duplicates
   }
 });
 
-test('pushProgress - never appends a bookmark (no-append mode, V3); declines when no chapter given', async () => {
+test('pushProgress - per-entry failure: a batch with a bad entry still writes the good ones', async () => {
   const env = await setupAdapter();
   try {
+    const good = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const noChapter = env.adapter._encodeEntryId('manhuaus', '/manga/another/');
+    const results = await env.adapter.pushProgress([
+      { pluginEntryId: good, chapter: 12 },
+      { pluginEntryId: noChapter },              // no chapter → per-entry failure
+      { pluginEntryId: 'not-a-valid-id', chapter: 3 },
+    ]);
+
+    assert.equal(results.length, 3);
+    assert.equal(results[0].success, true);
+    assert.equal(results[1].success, false);
+    assert.match(results[1].error, /only supports chapter progress/);
+    assert.equal(results[2].success, false);
+
+    const raw = JSON.parse(await fs.readFile(env.chaptermarksPath, 'utf8'));
+    assert.equal(raw.filter((cm) => cm.mangaID === '/manga/legend-of-star-general/' && cm.chapterTitle === 'Chapter 12').length, 1);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('pushProgress - never appends a bookmark (no-append mode, V3); empty array is a no-op', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.deepEqual(await env.adapter.pushProgress([]), []);
+    assert.deepEqual(await env.adapter.pushProgress(undefined), []);
+
     const id = env.adapter._encodeEntryId('mangalist', '/manga/new-series');
-
-    const result = await env.adapter.pushProgress(id, { rating: 8 });
-    assert.equal(result.success, false);
-    assert.match(result.error, /only supports chapter progress/);
-
+    await env.adapter.pushProgress([{ pluginEntryId: id, chapter: 5 }]);
     const raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
     assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 0);
   } finally {
@@ -530,51 +567,40 @@ test('pushProgress - never appends a bookmark (no-append mode, V3); declines whe
   }
 });
 
-test('subscribe - existing bookmark confirms membership without writing', async () => {
+test('subscribe - array in, array out; existing bookmark confirms without writing, missing is created', async () => {
   const env = await setupAdapter();
   try {
-    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const before = await fs.readFile(env.bookmarksPath, 'utf8');
+    const existing = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const missing = env.adapter._encodeEntryId('mangalist', '/manga/new-series');
 
-    const result = await env.adapter.subscribe(id);
-    assert.equal(result.success, true);
-    assert.equal(result.mode, 'confirmed');
+    const results = await env.adapter.subscribe([
+      { pluginEntryId: existing, status: 'READING' },
+      { pluginEntryId: missing, status: 'READING' },
+      { pluginEntryId: 'not-a-valid-id' },
+    ]);
 
-    const after = await fs.readFile(env.bookmarksPath, 'utf8');
-    assert.equal(after, before);
+    assert.equal(results.length, 3);
+    assert.deepEqual(results[0], { pluginEntryId: existing, success: true, mode: 'confirmed' });
+    assert.deepEqual(results[1], { pluginEntryId: missing, success: true, mode: 'created' });
+    assert.equal(results[2].success, false);
+
+    const raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
+    assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 1);
   } finally {
     await env.cleanup();
   }
 });
 
-test('subscribe - missing bookmark is created, idempotent on second call', async () => {
+test('subscribe - idempotent: a created row confirms on the next call; empty array no-op', async () => {
   const env = await setupAdapter();
   try {
+    assert.deepEqual(await env.adapter.subscribe([]), []);
     const id = env.adapter._encodeEntryId('mangalist', '/manga/new-series');
+    assert.equal((await env.adapter.subscribe([{ pluginEntryId: id }]))[0].mode, 'created');
+    assert.equal((await env.adapter.subscribe([{ pluginEntryId: id }]))[0].mode, 'confirmed');
 
-    const first = await env.adapter.subscribe(id);
-    assert.equal(first.success, true);
-    assert.equal(first.mode, 'created');
-
-    let raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
+    const raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
     assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 1);
-
-    const second = await env.adapter.subscribe(id);
-    assert.equal(second.success, true);
-    assert.equal(second.mode, 'confirmed');
-
-    raw = JSON.parse(await fs.readFile(env.bookmarksPath, 'utf8'));
-    assert.equal(raw.filter((b) => b.key.connector === 'mangalist' && b.key.manga === '/manga/new-series').length, 1);
-  } finally {
-    await env.cleanup();
-  }
-});
-
-test('subscribe - invalid pluginEntryId errors', async () => {
-  const env = await setupAdapter();
-  try {
-    const result = await env.adapter.subscribe('not-a-valid-id');
-    assert.equal(result.success, false);
   } finally {
     await env.cleanup();
   }
