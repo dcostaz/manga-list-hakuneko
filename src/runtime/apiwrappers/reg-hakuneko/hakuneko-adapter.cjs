@@ -32,7 +32,10 @@ const SERVICE_NAME = 'hakuneko';
  * - pluginEntryId: `${key.connector}::${encodeURIComponent(key.manga)}`
  * - folder:        `{downloadBaseDir}/{title.manga}/`
  *
- * Capabilities: tracker.file, workspace.list, workspace.get, plugin.cardBadge
+ * Capabilities (host-capability-contract.md register vocabulary): file-path, search.query,
+ * sync.pull, sync.push (chapter axis only), sync.list, subscribe.add (a bookmark row's presence
+ * in the file IS membership); plus plugin.cardBadge kept verbatim (Watching has no host impl).
+ * Its own workspace.entry surface lives in ../../web/.
  */
 class HakunekoAdapter {
   /**
@@ -89,7 +92,11 @@ class HakunekoAdapter {
   get pluginType() { return Object.freeze(['adapter']); }
 
   /** @returns {string[]} */
-  get capabilities() { return Object.freeze(['tracker.file', 'workspace.list', 'workspace.get', 'plugin.cardBadge']); }
+  get capabilities() {
+    return Object.freeze([
+      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'plugin.cardBadge',
+    ]);
+  }
 
   /** @returns {string} */
   get contractVersion() {
