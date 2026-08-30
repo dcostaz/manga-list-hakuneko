@@ -3,31 +3,37 @@
   "pluginType": "adapter",
   "pluginContractVersion": "2.0.0",
   "hostApiVersion": "1.0.0",
-  "capabilities": ["tracker.file", "workspace.list", "workspace.get", "plugin.cardBadge"],
+  "capabilities": [
+    "file-path",
+    "search.query",
+    "sync.pull",
+    "sync.push",
+    "sync.list",
+    "subscribe.add",
+    "plugin.cardBadge"
+  ],
   "iconPath": "images/hakuneko-icon.svg",
+  "syncOptions": {
+    "statusVocabulary": {
+      "READING": "bookmarks",
+      "COMPLETED": "bookmarks",
+      "PLAN_TO_READ": "bookmarks",
+      "ON_HOLD": "bookmarks",
+      "DROPPED": "bookmarks",
+      "RE_READING": "bookmarks"
+    },
+    "progressAxes": {
+      "pull": ["chapter"],
+      "push": ["chapter"]
+    }
+  },
   "workspace": {
     "workspaceId": "plugin:hakuneko",
     "enabled": true,
-    "displayLabel": "Hakuneko",
+    "displayLabel": "HakuNeko",
     "iconPath": "images/hakuneko-icon.svg",
-    "cardDisplay": {
-      "titleField": "mangaTitle",
-      "metricField": "chapterTitle",
-      "badgeFields": ["connectorLabel"]
-    },
-    "sortableFields": ["mangaTitle", "connectorLabel"],
-    "detailLayout": [
-      {
-        "sectionId": "overview",
-        "type": "stat-grid",
-        "label": "Overview",
-        "fields": ["connectorLabel", "chapterTitle"]
-      }
-    ],
-    "emptyState": {
-      "message": "No bookmarks found. Check that bookmarksPath is set correctly in plugin settings.",
-      "actionCapability": null
-    }
+    "entry": "web/index.html",
+    "callbacks": ["get-info", "bookmark", "find-in-mangalist", "open-url"]
   },
   "entrypoints": {
     "pluginModule": "apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs",

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HakuNeko</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search HakuNeko bookmarks…" autocomplete="off">
+      <select id="sort" aria-label="Sort by">
+        <option value="mangaTitle">Title</option>
+        <option value="connectorLabel">Connector</option>
+      </select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="body">
+      <div class="list" id="list">
+        <div class="state" id="listState">Loading…</div>
+      </div>
+      <aside class="detail" id="detail" hidden></aside>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <!-- host-owned bridge SDK (host-capability-contract.md §4.3) -->
+  <script src="mangalist-sdk://workspace-bridge.js"></script>
+  <script src="surface-logic.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
