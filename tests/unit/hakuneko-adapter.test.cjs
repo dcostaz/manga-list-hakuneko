@@ -240,52 +240,84 @@ test('buildLinkContribution - null currentChapter when no chaptermark', async ()
   }
 });
 
-test('queryBatch - returns active summaries for bookmark entries', async () => {
+// watch.summary (Plan-2026Q4-watch-summary-register-offer, Phase 6) — the former
+// `queryBatch`/map-out coverage, moved to the register name and the array shape.
+test('summarizeEntries - returns an active summary for a bookmarked entry', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const summaries = await env.adapter.queryBatch([id]);
+    const results = await env.adapter.summarizeEntries([id]);
 
-    assert.deepEqual(summaries[id], {
-      linkState: 'active',
-      label: 'ManhuaUS: Legend of Star General',
-    });
+    assert.ok(Array.isArray(results), 'array out, not a map (host-capability-contract.md §2.1)');
+    assert.deepEqual(results, [{
+      pluginEntryId: id,
+      success: true,
+      summary: {
+        linkState: 'active',
+        label: 'ManhuaUS: Legend of Star General',
+      },
+    }]);
   } finally {
     await env.cleanup();
   }
 });
 
-test('queryBatch - marks requested entries missing from bookmarks as error', async () => {
+// Membership in the bookmarks file IS the badge state, so "not in the file" is an answer, not a
+// failure: success stays TRUE. Reporting it as success:false would make the host skip the entry
+// and keep showing stale stored state.
+test('summarizeEntries - an entry missing from bookmarks is an explicit answer (success:true, linkState error)', async () => {
   const env = await setupAdapter();
   try {
     const missingId = env.adapter._encodeEntryId('mangalist', '/manga/not-in-hakuneko');
-    const summaries = await env.adapter.queryBatch([missingId]);
+    const results = await env.adapter.summarizeEntries([missingId]);
 
-    assert.deepEqual(summaries[missingId], {
-      linkState: 'error',
-      label: 'Missing from Hakuneko bookmarks',
-    });
+    assert.deepEqual(results, [{
+      pluginEntryId: missingId,
+      success: true,
+      summary: {
+        linkState: 'error',
+        label: 'Missing from Hakuneko bookmarks',
+      },
+    }]);
   } finally {
     await env.cleanup();
   }
 });
 
-test('queryBatch - returns empty object for empty input', async () => {
+test('summarizeEntries - returns an empty array for empty or absent input, never a throw', async () => {
   const env = await setupAdapter();
   try {
-    assert.deepEqual(await env.adapter.queryBatch([]), {});
-    assert.deepEqual(await env.adapter.queryBatch(), {});
+    assert.deepEqual(await env.adapter.summarizeEntries([]), []);
+    assert.deepEqual(await env.adapter.summarizeEntries(), []);
   } finally {
     await env.cleanup();
   }
 });
 
-test('queryBatch - degrades to stored badge state on bookmark parse failure', async () => {
+// The other half of the per-entry channel: an unparseable bookmarks file means membership is
+// unknown for every id. Previously this returned {} -- indistinguishable from "all ids fine".
+test('summarizeEntries - a bookmark parse failure is per-entry success:false, not silence', async () => {
   const env = await setupAdapter();
   try {
     await fs.writeFile(env.bookmarksPath, '{not json', 'utf8');
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    assert.deepEqual(await env.adapter.queryBatch([id]), {});
+    const results = await env.adapter.summarizeEntries([id]);
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].pluginEntryId, id);
+    assert.equal(results[0].success, false);
+    assert.equal(results[0].summary, undefined);
+    assert.equal(typeof results[0].error, 'string');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('queryBatch - the legacy map-out method is gone; watch.summary replaced it', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.equal(typeof env.adapter.queryBatch, 'undefined');
+    assert.equal(typeof env.adapter.summarizeEntries, 'function');
   } finally {
     await env.cleanup();
   }

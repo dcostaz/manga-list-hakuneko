@@ -34,8 +34,9 @@ const SERVICE_NAME = 'hakuneko';
  *
  * Capabilities (host-capability-contract.md register vocabulary): file-path, search.query,
  * sync.pull, sync.push (chapter axis only), sync.list, subscribe.add (a bookmark row's presence
- * in the file IS membership); plus plugin.cardBadge kept verbatim (Watching has no host impl).
- * Its own workspace.entry surface lives in ../../web/.
+ * in the file IS membership), watch.summary (replacing `plugin.cardBadge` —
+ * Plan-2026Q4-watch-summary-register-offer Phase 6). Its own workspace.entry surface lives in
+ * ../../web/.
  */
 class HakunekoAdapter {
   /**
@@ -94,7 +95,7 @@ class HakunekoAdapter {
   /** @returns {string[]} */
   get capabilities() {
     return Object.freeze([
-      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'plugin.cardBadge',
+      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'watch.summary',
     ]);
   }
 
@@ -483,27 +484,42 @@ class HakunekoAdapter {
     return requested.map((pluginEntryId) => toResult(pluginEntryId, bookmarkByEntryId.get(pluginEntryId)));
   }
 
-  // ── plugin.cardBadge ──
+  // ── watch.summary ──
 
   /**
-   * Batch badge status for linked Hakuneko entries. The badge state is live
-   * membership in the Hakuneko bookmarks file: present entries are active;
-   * requested entries missing from the file are stale links.
+   * Current volatile state for a host-named set of already-linked entries. The state is live
+   * membership in the Hakuneko bookmarks file: present entries are active, requested entries
+   * missing from the file are stale links.
+   *
+   * Array in, array out, with per-entry failure — never a whole-batch throw
+   * (`docs/plugins/host-capability-contract.md` §2.1). Replaces the pre-register
+   * `queryBatch`/map-out shape, which had no failure channel at all.
+   *
+   * `success` separates two things that map shape could not tell apart:
+   *
+   * - **`success: true` with `linkState: 'error'`** — this plugin ANSWERED, and the answer is
+   *   "not in the bookmarks file". Membership in that file is the whole badge state here, so an
+   *   absent entry is a real, reportable fact, not silence. It must reach the host, which means
+   *   it stays a success — the host skips failed entries by design, so reporting it as
+   *   `success: false` would leave the badge showing stale stored state instead.
+   * - **`success: false`** — this plugin could NOT answer: the bookmarks file is missing or
+   *   unparseable, so membership is unknown for every requested id. The host keeps their stored
+   *   badge state. This replaces the old `return {}`, which was indistinguishable from "every
+   *   id is fine".
    *
    * @param {string[]} pluginEntryIds
-   * @returns {Promise<Record<string, PluginCardSummary>>}
+   * @returns {Promise<Array<{ pluginEntryId: string, success: boolean, summary?: PluginCardSummary, error?: string }>>}
    */
-  async queryBatch(pluginEntryIds) {
-    /** @type {Record<string, PluginCardSummary>} */
-    const out = {};
+  async summarizeEntries(pluginEntryIds) {
     const requested = Array.isArray(pluginEntryIds)
       ? pluginEntryIds.filter((id) => typeof id === 'string' && id)
       : [];
-    if (requested.length === 0) return out;
+    if (requested.length === 0) return [];
 
     const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
     if (!bookmarksRead.ok) {
-      return out;
+      const error = bookmarksRead.message || 'Hakuneko bookmarks file unreadable';
+      return requested.map((pluginEntryId) => ({ pluginEntryId, success: false, error }));
     }
 
     const bookmarkByEntryId = new Map();
@@ -513,22 +529,26 @@ class HakunekoAdapter {
       bookmarkByEntryId.set(pluginEntryId, bookmark);
     }
 
-    for (const pluginEntryId of requested) {
+    return requested.map((pluginEntryId) => {
       const bookmark = bookmarkByEntryId.get(pluginEntryId);
-      if (bookmark) {
-        out[pluginEntryId] = {
-          linkState: 'active',
-          label: `${bookmark.title.connector}: ${bookmark.title.manga}`,
+      return bookmark
+        ? {
+          pluginEntryId,
+          success: true,
+          summary: {
+            linkState: 'active',
+            label: `${bookmark.title.connector}: ${bookmark.title.manga}`,
+          },
+        }
+        : {
+          pluginEntryId,
+          success: true,
+          summary: {
+            linkState: 'error',
+            label: 'Missing from Hakuneko bookmarks',
+          },
         };
-      } else {
-        out[pluginEntryId] = {
-          linkState: 'error',
-          label: 'Missing from Hakuneko bookmarks',
-        };
-      }
-    }
-
-    return out;
+    });
   }
 
   /**

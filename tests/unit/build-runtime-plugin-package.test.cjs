@@ -17,7 +17,7 @@ test('manifest - reflects plugin-package.json and injects hostApiVersion', () =>
   assert.equal(manifest.pluginType, 'adapter');
   assert.equal(manifest.hostApiVersion, '1.0.0');
   assert.deepEqual(manifest.capabilities, [
-    'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'plugin.cardBadge',
+    'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'watch.summary',
   ]);
   assert.equal(manifest.workspace.workspaceId, 'plugin:hakuneko');
   assert.equal(manifest.entrypoints.pluginModule, 'apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs');

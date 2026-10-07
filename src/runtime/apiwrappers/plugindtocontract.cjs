@@ -4,11 +4,13 @@
  * Plugin contract version and capability constants.
  *
  * PLUGIN_CONTRACT_VERSION: increment major on any breaking PluginAPILike change.
- * Adding a new capability constant requires a corresponding entry in §5 of
- * Plan-2026Q3-unified-plugin-system.md and a minor-version bump.
+ * Adding a new capability constant requires a corresponding entry in the host capability
+ * contract (`docs/plugins/host-capability-contract.md` §1.2/§2) and a minor-version bump.
+ * The host compares MAJOR only (`PluginPackageLoader._validateCompatibility()`), so a minor
+ * bump loads in both directions and needs no lockstep re-release across plugin repos.
  */
 
-const PLUGIN_CONTRACT_VERSION = '2.0.0';
+const PLUGIN_CONTRACT_VERSION = '2.1.0';
 const PLUGIN_SETTINGS_CONTRACT_VERSION = '1.0.0';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +35,20 @@ const CAPABILITY_WORKSPACE_DISCOVER = 'workspace.discover';
 const CAPABILITY_PLUGIN_LIVE       = 'plugin.live';
 const CAPABILITY_PLUGIN_CARD_BADGE = 'plugin.cardBadge';
 const CAPABILITY_PLUGIN_FILTER     = 'plugin.filter';
+
+// ---------------------------------------------------------------------------
+// Register vocabulary (docs/plugins/host-capability-contract.md §1.2)
+//
+// Everything above is the pre-register flat-tag vocabulary. New offers are declared by their
+// register name instead. `watch.summary` (method `summarizeEntries`) is the first one here --
+// live refresh of per-entry volatile state at render time, for a set of entries the HOST names.
+// It supersedes `plugin.cardBadge`/`queryBatch`, which stays declarable until a future major.
+//
+// Badge display itself is NOT this offer and is not gated on it: per-entry link state is
+// host-owned and universal, and a plugin declaring neither is served from its stored state.
+// ---------------------------------------------------------------------------
+
+const CAPABILITY_WATCH_SUMMARY = 'watch.summary';
 
 // ---------------------------------------------------------------------------
 // FilterNotApplicableError
@@ -70,6 +86,8 @@ module.exports = {
   CAPABILITY_PLUGIN_LIVE,
   CAPABILITY_PLUGIN_CARD_BADGE,
   CAPABILITY_PLUGIN_FILTER,
+
+  CAPABILITY_WATCH_SUMMARY,
 
   FilterNotApplicableError,
 };
