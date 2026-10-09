@@ -563,6 +563,69 @@ test('pullProgressBatch - functions correctly at ~2000 entries in one pass (chec
   }
 });
 
+// getReadingList() answers TWO offers over one method (host-capability-contract.md §2's own
+// note): `sync.list` (Syncing, user-side) and `watch.list` (Watching, system-side). Same result
+// either way -- the host decides what to do with it, not this adapter.
+test('getReadingList - one PluginReadingListEntry per bookmark, status always "bookmarks"', async () => {
+  const env = await setupAdapter();
+  try {
+    const list = await env.adapter.getReadingList();
+    assert.equal(list.length, BOOKMARKS.length);
+    assert.ok(list.every((e) => e.status === 'bookmarks'), 'every entry: presence in the file IS the status');
+    const legend = list.find((e) => e.title === 'Legend of Star General');
+    assert.equal(legend.chapter, 372);
+    assert.equal(legend.canonicalUrl, null, 'manhuaus keys by a local path, not a URL');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('getReadingList - canonicalUrl is the bookmark key only when it is already an absolute URL', async () => {
+  const env = await setupAdapter();
+  try {
+    const list = await env.adapter.getReadingList();
+    const onePiece = list.find((e) => e.title === 'One Piece');
+    assert.equal(onePiece.canonicalUrl, 'https://mangadex.org/title/one-piece');
+    assert.equal(onePiece.chapter, 1100);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('getReadingList - no chaptermark for an entry is chapter: null, not thrown', async () => {
+  const env = await setupAdapter();
+  try {
+    const list = await env.adapter.getReadingList();
+    const naruto = list.find((e) => e.title === 'Naruto'); // no CHAPTERMARKS row for this one
+    assert.equal(naruto.chapter, null);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('getReadingList - a malformed bookmarks file returns [], never a throw', async () => {
+  const env = await setupAdapter();
+  try {
+    await fs.writeFile(env.bookmarksPath, '{ not valid json', 'utf8');
+    const list = await env.adapter.getReadingList();
+    assert.deepEqual(list, []);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('_parseChapterTitle - extracts the chapter number from a "Chapter N" title, mirroring the host parse', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.equal(env.adapter._parseChapterTitle('Chapter 686'), 686);
+    assert.equal(env.adapter._parseChapterTitle('Ch. 12.5'), 12.5);
+    assert.equal(env.adapter._parseChapterTitle(null), null);
+    assert.equal(env.adapter._parseChapterTitle('no numbers here'), null);
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test('pushProgress - array in, array out; chapter change updates chaptermark, replaces not duplicates', async () => {
   const env = await setupAdapter();
   try {
