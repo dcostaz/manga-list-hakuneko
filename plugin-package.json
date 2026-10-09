@@ -1,7 +1,7 @@
 {
   "pluginName": "hakuneko",
   "pluginType": "adapter",
-  "pluginContractVersion": "2.1.0",
+  "pluginContractVersion": "3.0.0",
   "hostApiVersion": "1.0.0",
   "capabilities": [
     "file-path",
@@ -9,6 +9,7 @@
     "sync.pull",
     "sync.push",
     "sync.list",
+    "watch.list",
     "subscribe.add",
     "watch.summary"
   ],
