@@ -33,10 +33,13 @@ const SERVICE_NAME = 'hakuneko';
  * - folder:        `{downloadBaseDir}/{title.manga}/`
  *
  * Capabilities (host-capability-contract.md register vocabulary): file-path, search.query,
- * sync.pull, sync.push (chapter axis only), sync.list, subscribe.add (a bookmark row's presence
- * in the file IS membership), watch.summary (replacing `plugin.cardBadge` —
- * Plan-2026Q4-watch-summary-register-offer Phase 6). Its own workspace.entry surface lives in
- * ../../web/.
+ * sync.pull, sync.push (chapter axis only), sync.list, watch.list, subscribe.add (a bookmark
+ * row's presence in the file IS membership), watch.summary. No `watch.entry` -- this adapter's
+ * per-entry volatile state is already served by `watch.summary`/`summarizeEntries`, and there is
+ * no separate single-entry live query. `getReadingList()` answers both `sync.list` (Syncing,
+ * user-side) and `watch.list` (Watching, system-side) -- one method, two offers, split by
+ * governed domain (Plan-2026Q4-pre-register-vocabulary-removal D1). Its own workspace.entry
+ * surface lives in ../../web/.
  */
 class HakunekoAdapter {
   /**
@@ -95,7 +98,8 @@ class HakunekoAdapter {
   /** @returns {string[]} */
   get capabilities() {
     return Object.freeze([
-      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'subscribe.add', 'watch.summary',
+      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'watch.list',
+      'subscribe.add', 'watch.summary',
     ]);
   }
 
@@ -161,7 +165,7 @@ class HakunekoAdapter {
     return { status: 'ok', entryCount: read.data.length };
   }
 
-  // ── workspace.list / workspace.get ──
+  // ── §5.4 own-data reads (own-list / own-entry) -- NOT capabilities ──
 
   /**
    * List bookmark entries as PluginWorkspaceEntry[] with pagination + sorting.
@@ -361,7 +365,7 @@ class HakunekoAdapter {
     };
   }
 
-  // ── tracker.file: pull / push ──
+  // ── sync.pull / sync.push (file-path transport) ──
 
   /**
    * Pull operation. Conservative: never overwrites existing progress.
@@ -482,6 +486,83 @@ class HakunekoAdapter {
       return Array.from(bookmarkByEntryId.entries()).map(([pluginEntryId, bookmark]) => toResult(pluginEntryId, bookmark));
     }
     return requested.map((pluginEntryId) => toResult(pluginEntryId, bookmarkByEntryId.get(pluginEntryId)));
+  }
+
+  // ── sync.list / watch.list ──
+
+  /**
+   * The whole bookmarks list in one call, as `PluginReadingListEntry[]`
+   * (host-capability-contract.md §2). One method answers TWO offers, split by governed domain
+   * and credential side, never by the method itself:
+   *
+   * - **`sync.list`** (Syncing, user-side) -- the host reconciles this against the calling
+   *   user's own Bookmarks.
+   * - **`watch.list`** (Watching, system-side) -- the host writes each linked Reference's
+   *   volatile snapshot from this same result.
+   *
+   * Reuses the exact `_readArrayFile`/`_indexChaptermarks` pair `listEntries()` and
+   * `pullProgress()` already use -- one read of both files, one pass.
+   *
+   * `status: 'bookmarks'` throughout -- every `syncOptions.statusVocabulary` key maps to that
+   * single list (there is only one list in a bookmarks file), so presence IS the status.
+   * `canonicalUrl` is `bookmark.key.manga` only when it's already an absolute URL (true for
+   * connectors like MangaDex that key by URL); other connectors key by a local path with no
+   * root-URL registry available to this adapter, so it's `null` there. `chapter` reuses the
+   * same chapter-float parse the host's own `PluginService._parseChapterTitle()` performs on
+   * this plugin's raw `chapterTitle` elsewhere (`Utils.CHAPTERREGEX`) -- inlined here since a
+   * plugin repo has no access to that host utility, kept in semantic lockstep with it.
+   *
+   * @param {{ hostProgressByEntryId?: Map<string, object> }} [options]
+   * @returns {Promise<import('../../../../types/plugintypedefs').PluginReadingListEntry[]>}
+   */
+  async getReadingList(options = {}) {
+    const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
+    if (!bookmarksRead.ok) return [];
+    const chaptermarksRead = await this._readArrayFile(this._chaptermarksPath);
+    if (!chaptermarksRead.ok) return [];
+
+    const chapterByKey = this._indexChaptermarks(chaptermarksRead.data);
+
+    return bookmarksRead.data
+      .filter((bookmark) => this._isValidBookmark(bookmark))
+      .map((bookmark) => {
+        const mangaKey = bookmark.key.manga;
+        const chaptermark = chapterByKey.get(`${bookmark.key.connector}::${mangaKey}`);
+        const chapterTitle = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
+
+        return {
+          pluginEntryId: this._encodeEntryId(bookmark.key.connector, mangaKey),
+          title: typeof bookmark.title.manga === 'string' ? bookmark.title.manga : null,
+          canonicalUrl: typeof mangaKey === 'string' && /^https?:\/\//i.test(mangaKey) ? mangaKey : null,
+          status: 'bookmarks',
+          chapter: this._parseChapterTitle(chapterTitle),
+          rating: null,
+          volume: null,
+          listId: null,
+          priority: null,
+          lastUpdated: null,
+          comparison: null,
+        };
+      });
+  }
+
+  /**
+   * Mirrors the host's own `PluginService._parseChapterTitle()` (`Utils.CHAPTERREGEX`) for
+   * semantic parity -- this repo has no access to that host utility, so the same pattern is
+   * inlined here. The chapter capture group is optional (the whole regex can match trivially),
+   * so a title with no extractable chapter number -- or no title at all -- returns `null`,
+   * never an invented default.
+   *
+   * @param {string | null} chapterTitle
+   * @returns {number | null}
+   */
+  _parseChapterTitle(chapterTitle) {
+    if (typeof chapterTitle !== 'string' || !chapterTitle.trim()) return null;
+    const match = /(?:v(?:ol(?:ume)?)?\.?\s*(\d+(?:\.\d+)?))?[\s]*?(?:c(?:h(?:apter)?)?\.?\s*(\d+(?:\.\d+)?))?/i.exec(chapterTitle);
+    const rawChapter = match ? match[2] : undefined;
+    if (rawChapter === undefined) return null;
+    const parsed = parseFloat(rawChapter);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   // ── watch.summary ──
