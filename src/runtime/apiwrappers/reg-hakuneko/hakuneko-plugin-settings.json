@@ -1,20 +1,62 @@
 {
-  "downloadBaseDir": {
-    "type": "string",
-    "label": "Manga base directory",
-    "description": "Base directory shared by Hakuneko and manga-list. Folder matching uses {downloadBaseDir}/{mangaTitle}/",
-    "readOnly": false
+  "metadata": {
+    "componentName": "HakunekoSettings",
+    "description": "HakuNeko adapter settings",
+    "version": "1.0.0",
+    "settingsContractVersion": "1.0.0"
   },
-  "bookmarksPath": {
-    "type": "string",
-    "label": "Hakuneko bookmarks file",
-    "description": "Full path to hakuneko.bookmarks JSON file",
-    "readOnly": false
+  "schema": {
+    "downloadBaseDir": {
+      "type": "path",
+      "required": true,
+      "default": "",
+      "isBasic": true,
+      "label": "Manga base directory",
+      "description": "Base directory shared by Hakuneko and manga-list. Folder matching uses {downloadBaseDir}/{mangaTitle}/",
+      "readOnly": false,
+      "category": "general",
+      "order": 10
+    },
+    "bookmarksPath": {
+      "type": "path",
+      "required": true,
+      "default": "",
+      "isBasic": true,
+      "label": "Hakuneko bookmarks file",
+      "description": "Full path to hakuneko.bookmarks JSON file",
+      "readOnly": false,
+      "category": "general",
+      "order": 20,
+      "uiHints": {
+        "pathType": "file",
+        "filters": [
+          { "name": "Hakuneko bookmarks", "extensions": ["bookmarks", "json"] },
+          { "name": "All files", "extensions": ["*"] }
+        ]
+      }
+    },
+    "chaptermarksPath": {
+      "type": "path",
+      "required": true,
+      "default": "",
+      "isBasic": true,
+      "label": "Hakuneko chaptermarks file",
+      "description": "Full path to hakuneko.chaptermarks JSON file",
+      "readOnly": false,
+      "category": "general",
+      "order": 30,
+      "uiHints": {
+        "pathType": "file",
+        "filters": [
+          { "name": "Hakuneko chaptermarks", "extensions": ["chaptermarks", "json"] },
+          { "name": "All files", "extensions": ["*"] }
+        ]
+      }
+    }
   },
-  "chaptermarksPath": {
-    "type": "string",
-    "label": "Hakuneko chaptermarks file",
-    "description": "Full path to hakuneko.chaptermarks JSON file",
-    "readOnly": false
+  "settings": {
+    "downloadBaseDir": "",
+    "bookmarksPath": "",
+    "chaptermarksPath": ""
   }
 }

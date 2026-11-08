@@ -4,18 +4,23 @@
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
-const { PLUGIN_CONTRACT_VERSION } = require(path.join(__dirname, '..', 'src', 'runtime', 'apiwrappers', 'plugindtocontract.cjs'));
+const { PLUGIN_CONTRACT_VERSION } = require('@manga-list/plugin-sdk');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
+const REG_DIR = path.join('src', 'runtime', 'apiwrappers', 'reg-hakuneko');
+const MANIFEST_PATH = path.join(ROOT_DIR, REG_DIR, 'plugin-package.json');
 
-/** @type {Array<{ src: string, dest: string }>} */
+/**
+ * The plugin's files: every module and the settings document beside the definition, and the icon. The manifest is
+ * written separately, at the root the loader reads and beside the definition, which requires it. The SDK is never
+ * bundled: the host stages its own copy beside the plugin runtime root.
+ * @type {Array<{ src: string, dest: string }>}
+ */
 const FILE_MAPPINGS = [
-  { src: path.join('src', 'runtime', 'apiwrappers', 'plugindtocontract.cjs'), dest: 'apiwrappers/plugindtocontract.cjs' },
-  { src: path.join('src', 'runtime', 'apiwrappers', 'reg-hakuneko', 'hakuneko-plugin-module.cjs'), dest: 'apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs' },
-  { src: path.join('src', 'runtime', 'apiwrappers', 'reg-hakuneko', 'hakuneko-adapter.cjs'), dest: 'apiwrappers/reg-hakuneko/hakuneko-adapter.cjs' },
-  { src: path.join('src', 'runtime', 'apiwrappers', 'reg-hakuneko', 'hakuneko-settings.cjs'), dest: 'apiwrappers/reg-hakuneko/hakuneko-settings.cjs' },
-  { src: path.join('src', 'runtime', 'apiwrappers', 'reg-hakuneko', 'hakuneko-plugin-settings.json'), dest: 'apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json' },
+  ...fs.readdirSync(path.join(ROOT_DIR, REG_DIR))
+    .filter((name) => /\.(cjs|json)$/.test(name) && name !== 'plugin-package.json')
+    .map((name) => ({ src: path.join(REG_DIR, name), dest: `apiwrappers/reg-hakuneko/${name}` })),
   { src: path.join('src', 'runtime', 'images', 'hakuneko-icon.svg'), dest: 'images/hakuneko-icon.svg' },
 ];
 
@@ -65,7 +70,16 @@ function resolveHostApiVersion(explicitVersion) {
 
 function resolveOutputPath(explicitPath) {
   if (explicitPath && explicitPath.trim()) return path.resolve(explicitPath.trim());
-  return path.join(DIST_DIR, 'hakuneko-adapter-1.0.0.zip');
+  return path.join(DIST_DIR, `hakuneko-adapter-${readJsonObjectFile(MANIFEST_PATH, 'plugin-package.json').pluginContractVersion}-${commitStamp()}.zip`);
+}
+
+/** The short commit the zip is built from, so a rebuilt zip is told from the old one; `nogit` outside a checkout. */
+function commitStamp() {
+  try {
+    return require('child_process').execSync('git rev-parse --short HEAD', { cwd: ROOT_DIR, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'nogit';
+  } catch {
+    return 'nogit';
+  }
 }
 
 function ensureDistDir() {
@@ -82,8 +96,7 @@ function readJsonObjectFile(fullPath, label) {
 }
 
 function buildManifest(hostApiVersion) {
-  const pluginPackagePath = path.join(ROOT_DIR, 'plugin-package.json');
-  const pluginPackage = readJsonObjectFile(pluginPackagePath, 'plugin-package.json');
+  const pluginPackage = readJsonObjectFile(MANIFEST_PATH, 'plugin-package.json');
   const contractVersion = typeof pluginPackage.pluginContractVersion === 'string' ? pluginPackage.pluginContractVersion : '1.0.0';
   const contractMajor = contractVersion.split('.')[0];
   const pluginContractMajor = PLUGIN_CONTRACT_VERSION.split('.')[0];
@@ -111,7 +124,7 @@ function buildHakunekoPackage(options = {}) {
     output.on('close', () => resolve({
       outputPath,
       manifest,
-      fileCount: FILE_MAPPINGS.length + webFiles.length + 1,
+      fileCount: FILE_MAPPINGS.length + webFiles.length + 2,
       webFiles: webFiles.map((f) => f.dest)
     }));
     archive.on('warning', (e) => { if (e.code === 'ENOENT') { console.warn('Warning:', e.message); return; } reject(e); });
@@ -119,6 +132,7 @@ function buildHakunekoPackage(options = {}) {
     archive.pipe(output);
 
     archive.append(JSON.stringify(manifest, null, 2), { name: 'plugin-package.json' });
+    archive.append(JSON.stringify(manifest, null, 2), { name: 'apiwrappers/reg-hakuneko/plugin-package.json' });
 
     for (const file of FILE_MAPPINGS) {
       const fullSource = path.join(ROOT_DIR, file.src);
