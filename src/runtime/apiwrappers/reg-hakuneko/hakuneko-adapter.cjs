@@ -33,8 +33,11 @@ const SERVICE_NAME = 'hakuneko';
  * - folder:        `{downloadBaseDir}/{title.manga}/`
  *
  * Capabilities (host-capability-contract.md register vocabulary): file-path, search.query,
- * sync.pull, sync.push (chapter axis only), sync.list, watch.list, subscribe.add (a bookmark
- * row's presence in the file IS membership), watch.summary. No `watch.entry` -- this adapter's
+ * enrich (the link-time contribution, A8), sync.pull, sync.push (chapter axis only), sync.list,
+ * watch.list, subscribe.add (a bookmark row's presence in the file IS membership: the manifest's
+ * `statusVocabulary` pushes every host status to the one `bookmarks` list and pulls it as `null`,
+ * a membership-only list, §2.2), watch.summary. Every offer method below receives the host's trailing
+ * `callContext` (§2) as an extra argument it does not read. No `watch.entry` -- this adapter's
  * per-entry volatile state is already served by `watch.summary`/`summarizeEntries`, and there is
  * no separate single-entry live query. `getReadingList()` answers both `sync.list` (Syncing,
  * user-side) and `watch.list` (Watching, system-side) -- one method, two offers, split by
@@ -98,7 +101,7 @@ class HakunekoAdapter {
   /** @returns {string[]} */
   get capabilities() {
     return Object.freeze([
-      'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'watch.list',
+      'file-path', 'search.query', 'enrich', 'sync.pull', 'sync.push', 'sync.list', 'watch.list',
       'subscribe.add', 'watch.summary',
     ]);
   }
@@ -326,7 +329,38 @@ class HakunekoAdapter {
   }
 
   /**
-   * Build the link contribution for a confirmed link.
+   * `enrich` (host-capability-contract.md §1.2 / §2.1) — array in, array out, per-entry failure,
+   * never a whole-batch throw. The host calls it for the link-time contribution (A8: it no longer
+   * calls `findMatches`/`buildLinkContribution`). Each entry is resolved through the single-entry
+   * `buildLinkContribution()` builder, the same pattern as FMD2's `enrich`: no bookmark for the id
+   * is a per-entry `not_found`; an unreadable bookmarks/chaptermarks file is a per-entry
+   * `source_error`.
+   *
+   * @param {string[]} pluginEntryIds
+   * @returns {Promise<Array<{ pluginEntryId: string, success: boolean, contribution?: PluginLinkContribution, error?: { code: 'not_found' | 'source_error', message: string } }>>}
+   */
+  async enrich(pluginEntryIds) {
+    const ids = Array.isArray(pluginEntryIds) ? pluginEntryIds : [];
+    const results = [];
+    for (const pluginEntryId of ids) {
+      try {
+        const contribution = await this.buildLinkContribution(pluginEntryId);
+        if (contribution && typeof contribution === 'object' && contribution.status === 'error') {
+          results.push({ pluginEntryId, success: false, error: { code: 'source_error', message: contribution.message } });
+        } else if (contribution) {
+          results.push({ pluginEntryId, success: true, contribution });
+        } else {
+          results.push({ pluginEntryId, success: false, error: { code: 'not_found', message: `No Hakuneko bookmark for '${pluginEntryId}'` } });
+        }
+      } catch (error) {
+        results.push({ pluginEntryId, success: false, error: { code: 'source_error', message: error instanceof Error ? error.message : String(error) } });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Build the link contribution for a confirmed link — the internal builder behind `enrich`.
    * Targets plugin_references → localtracker. Hakuneko contributes no metadata
    * enrichment beyond identity + folder + last-known chapter.
    *
@@ -503,8 +537,9 @@ class HakunekoAdapter {
    * Reuses the exact `_readArrayFile`/`_indexChaptermarks` pair `listEntries()` and
    * `pullProgress()` already use -- one read of both files, one pass.
    *
-   * `status: 'bookmarks'` throughout -- every `syncOptions.statusVocabulary` key maps to that
-   * single list (there is only one list in a bookmarks file), so presence IS the status.
+   * `status: 'bookmarks'` throughout -- every `syncOptions.statusVocabulary.push` row targets that
+   * single list (there is only one list in a bookmarks file) and `pull` reads it as `null`: presence
+   * is membership, never a reading status.
    * `canonicalUrl` is `bookmark.key.manga` only when it's already an absolute URL (true for
    * connectors like MangaDex that key by URL); other connectors key by a local path with no
    * root-URL registry available to this adapter, so it's `null` there. `chapter` reuses the
