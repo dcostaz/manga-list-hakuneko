@@ -476,41 +476,37 @@ test('getEntry - returns null for unknown id', async () => {
   }
 });
 
-test('pullProgress - current_chapter null updates chapter', async () => {
+test('pullProgress - a bookmarked entry answers its list token and the chaptermark\'s chapter as a number (A1)', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const result = await env.adapter.pullProgress(id, { hasBookmark: true, currentChapter: null });
-    assert.equal(result.updated.length, 1);
-    assert.equal(result.updated[0].chapter_set, 'Chapter 372');
-    assert.equal(result.skipped_chapter_exists.length, 0);
-    assert.equal(result.skipped_no_bookmark.length, 0);
+    const result = await env.adapter.pullProgress(id);
+    assert.deepEqual(result, { pluginEntryId: id, status: 'bookmarks', chapter: 372, rating: null, lastUpdated: null });
   } finally {
     await env.cleanup();
   }
 });
 
-test('pullProgress - current_chapter already set is skipped', async () => {
+test('pullProgress - the call context arriving after the id changes nothing', async () => {
   const env = await setupAdapter();
   try {
     const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const result = await env.adapter.pullProgress(id, { hasBookmark: true, currentChapter: 'Chapter 5' });
-    assert.equal(result.skipped_chapter_exists.length, 1);
-    assert.equal(result.skipped_chapter_exists[0].reason, 'chapter_exists');
-    assert.equal(result.updated.length, 0);
+    const ctx = { credential: null, identity: 'label', scope: 'user-1', signal: null };
+    const result = await env.adapter.pullProgress(id, ctx);
+    assert.equal(result.status, 'bookmarks');
+    assert.equal(result.chapter, 372);
   } finally {
     await env.cleanup();
   }
 });
 
-test('pullProgress - no bookmark row is skipped', async () => {
+test('pullProgress - an entry not on the bookmarks list answers every field null, never a throw', async () => {
   const env = await setupAdapter();
   try {
-    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
-    const result = await env.adapter.pullProgress(id, { hasBookmark: false, currentChapter: null });
-    assert.equal(result.skipped_no_bookmark.length, 1);
-    assert.equal(result.skipped_no_bookmark[0].reason, 'no_bookmark');
-    assert.equal(result.updated.length, 0);
+    const id = env.adapter._encodeEntryId('nope', '/manga/none');
+    assert.deepEqual(await env.adapter.pullProgress(id), { pluginEntryId: id, status: null, chapter: null, rating: null, lastUpdated: null });
+    const bad = await env.adapter.pullProgress('not-an-encoded-id');
+    assert.equal(bad.status, null);
   } finally {
     await env.cleanup();
   }

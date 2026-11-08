@@ -402,53 +402,38 @@ class HakunekoAdapter {
   // ── sync.pull / sync.push (file-path transport) ──
 
   /**
-   * Pull operation. Conservative: never overwrites existing progress.
-   * The host supplies the current bookmark state for the linked entry; the
-   * plugin reads its chaptermark and decides per the pull rules.
+   * `sync.pull` (host-capability-contract.md §2, A1): one entry's state at the source, as a
+   * `PluginPullResult`. The call carries one argument (the call context follows it, unused here):
+   * whether to apply what it reads is the host's decision, never this plugin's.
+   *
+   * - On the bookmarks list: `status: 'bookmarks'` (the list's token; `pull` reads it as no
+   *   reading status, A16) and `chapter` parsed from the entry's chaptermark, null when there is
+   *   none or its title holds no chapter number.
+   * - Not on the list (or an id this plugin cannot decode): every field null, never a throw.
+   * - A file that cannot be read: a thrown `source_error`.
    *
    * @param {string} pluginEntryId
-   * @param {object} [current] - Host-provided current state.
-   * @param {boolean} [current.hasBookmark] - Whether a bookmarks row exists for the user.
-   * @param {string | number | null} [current.currentChapter] - Existing current_chapter (null/empty if unset).
-   * @returns {Promise<{ updated: object[], skipped_no_bookmark: object[], skipped_chapter_exists: object[] } | { status: 'error', message: string, retryable: boolean }>}
+   * @returns {Promise<{ pluginEntryId: string, status: string | null, chapter: number | null, rating: null, lastUpdated: null }>}
    */
-  async pullProgress(pluginEntryId, current = {}) {
-    const result = { updated: [], skipped_no_bookmark: [], skipped_chapter_exists: [] };
-
+  async pullProgress(pluginEntryId) {
+    const empty = { pluginEntryId: String(pluginEntryId), status: null, chapter: null, rating: null, lastUpdated: null };
     const decoded = this._decodeEntryId(pluginEntryId);
-    if (!decoded) {
-      result.skipped_no_bookmark.push({ pluginEntryId, reason: 'no_bookmark' });
-      return result;
-    }
+    if (!decoded) return empty;
+
+    const bookmarksRead = await this._readArrayFile(this._bookmarksPath);
+    if (!bookmarksRead.ok) throw Object.assign(new Error(bookmarksRead.message), { code: 'source_error' });
+    const bookmarked = bookmarksRead.data.some((entry) =>
+      this._isValidBookmark(entry)
+      && entry.key.connector === decoded.connector
+      && entry.key.manga === decoded.mangaKey);
+    if (!bookmarked) return empty;
 
     const chaptermarksRead = await this._readArrayFile(this._chaptermarksPath);
-    if (!chaptermarksRead.ok) {
-      return { status: 'error', message: chaptermarksRead.message, retryable: false };
-    }
-
-    const ctx = current && typeof current === 'object' ? current : {};
-    const hasBookmark = ctx.hasBookmark === true;
-    const existingChapter = ctx.currentChapter;
-    const chapterIsSet = existingChapter !== null && existingChapter !== undefined && existingChapter !== '';
-
+    if (!chaptermarksRead.ok) throw Object.assign(new Error(chaptermarksRead.message), { code: 'source_error' });
     const chaptermark = this._findChaptermark(chaptermarksRead.data, decoded.connector, decoded.mangaKey);
-    const proposedChapter = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
+    const chapterTitle = chaptermark && typeof chaptermark.chapterTitle === 'string' ? chaptermark.chapterTitle : null;
 
-    if (!hasBookmark) {
-      result.skipped_no_bookmark.push({ pluginEntryId, reason: 'no_bookmark' });
-      return result;
-    }
-
-    if (chapterIsSet) {
-      result.skipped_chapter_exists.push({ pluginEntryId, reason: 'chapter_exists', existing: existingChapter });
-      return result;
-    }
-
-    if (proposedChapter !== null) {
-      result.updated.push({ pluginEntryId, chapter_set: proposedChapter });
-    }
-
-    return result;
+    return { ...empty, status: 'bookmarks', chapter: this._parseChapterTitle(chapterTitle) };
   }
 
   /**
