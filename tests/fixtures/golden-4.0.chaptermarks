@@ -1,0 +1,20 @@
+[
+  {
+    "mangaID": "/manga/legend-of-star-general/",
+    "connectorID": "manhuaus",
+    "chapterID": "/manga/legend-of-star-general/Chapter 400/",
+    "chapterTitle": "Chapter 400"
+  },
+  {
+    "mangaID": "https://mangadex.org/title/one-piece",
+    "connectorID": "mangadex",
+    "chapterID": "https://mangadex.org/title/one-piece/Chapter 1101/",
+    "chapterTitle": "Chapter 1101"
+  },
+  {
+    "mangaID": "/manga/solo-leveling",
+    "connectorID": "mangalist",
+    "chapterID": "/manga/solo-leveling/Chapter 12.5/",
+    "chapterTitle": "Chapter 12.5"
+  }
+]

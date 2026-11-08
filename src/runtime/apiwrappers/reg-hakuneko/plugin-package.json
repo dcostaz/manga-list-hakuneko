@@ -1,7 +1,8 @@
 {
   "pluginName": "hakuneko",
+  "displayName": "HakuNeko",
   "pluginType": "adapter",
-  "pluginContractVersion": "4.0.0",
+  "pluginContractVersion": "4.1.0",
   "hostApiVersion": "1.0.0",
   "capabilities": [
     "file-path",
@@ -15,6 +16,29 @@
     "watch.summary"
   ],
   "iconPath": "images/hakuneko-icon.svg",
+  "entrypoints": {
+    "pluginModule": "apiwrappers/reg-hakuneko/hakuneko-plugin.cjs",
+    "settingsFile": "apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json"
+  },
+  "filePathOptions": {
+    "fields": [
+      {
+        "key": "downloadBaseDir",
+        "label": "Manga base directory",
+        "kind": "directory"
+      },
+      {
+        "key": "bookmarksPath",
+        "label": "Hakuneko bookmarks file",
+        "kind": "file"
+      },
+      {
+        "key": "chaptermarksPath",
+        "label": "Hakuneko chaptermarks file",
+        "kind": "file"
+      }
+    ]
+  },
   "syncOptions": {
     "statusVocabulary": {
       "push": {
@@ -30,8 +54,12 @@
       }
     },
     "progressAxes": {
-      "pull": ["chapter"],
-      "push": ["chapter"]
+      "pull": [
+        "chapter"
+      ],
+      "push": [
+        "chapter"
+      ]
     }
   },
   "workspace": {
@@ -40,10 +68,11 @@
     "displayLabel": "HakuNeko",
     "iconPath": "images/hakuneko-icon.svg",
     "entry": "web/index.html",
-    "callbacks": ["get-info", "bookmark", "find-in-mangalist", "open-url"]
-  },
-  "entrypoints": {
-    "pluginModule": "apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs",
-    "settingsFile": "apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json"
+    "callbacks": [
+      "get-info",
+      "bookmark",
+      "find-in-mangalist",
+      "open-url"
+    ]
   }
 }

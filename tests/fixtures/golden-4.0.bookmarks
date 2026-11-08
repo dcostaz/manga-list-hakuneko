@@ -1,0 +1,42 @@
+[
+  {
+    "title": {
+      "connector": "ManhuaUS",
+      "manga": "Legend of Star General"
+    },
+    "key": {
+      "connector": "manhuaus",
+      "manga": "/manga/legend-of-star-general/"
+    }
+  },
+  {
+    "title": {
+      "connector": "MangaDex",
+      "manga": "One Piece"
+    },
+    "key": {
+      "connector": "mangadex",
+      "manga": "https://mangadex.org/title/one-piece"
+    }
+  },
+  {
+    "title": {
+      "connector": "Manga List",
+      "manga": "Solo Leveling"
+    },
+    "key": {
+      "connector": "mangalist",
+      "manga": "/manga/solo-leveling"
+    }
+  },
+  {
+    "title": {
+      "connector": "Manga List",
+      "manga": "/manga/new-series"
+    },
+    "key": {
+      "connector": "mangalist",
+      "manga": "/manga/new-series"
+    }
+  }
+]

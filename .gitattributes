@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# The golden files are compared byte for byte: never normalized
+tests/fixtures/golden-4.0.* -text
