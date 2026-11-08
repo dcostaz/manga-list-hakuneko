@@ -90,6 +90,25 @@ test('capabilities getter matches plugin-package.json capabilities[]', async () 
   }
 });
 
+// The host loader skips a package whose declared offer lacks its §2 method on the class prototype
+// (host-capability-contract.md §2; the table is @manga-list/plugin-sdk's OFFER_METHODS, copied here
+// because this repo does not depend on the SDK until the adapter plan).
+const OFFER_METHODS = {
+  'search.query': ['search'], enrich: ['enrich'], 'sync.pull': ['pullProgress'], 'sync.push': ['pushProgress'],
+  'sync.list': ['getReadingList'], 'watch.list': ['getReadingList'], 'subscribe.add': ['subscribe'],
+  'watch.summary': ['summarizeEntries'],
+};
+
+test('every declared offer has its §2 method on the prototype', () => {
+  for (const offer of manifest.capabilities) {
+    if (offer === 'file-path') continue; // an access offer with no method (§2)
+    assert.ok(OFFER_METHODS[offer], `test table is missing offer '${offer}'`);
+    for (const method of OFFER_METHODS[offer]) {
+      assert.equal(typeof HakunekoAdapter.prototype[method], 'function', `${offer} → ${method}`);
+    }
+  }
+});
+
 test('initialize - unconfigured when paths missing, does not throw', async () => {
   const adapter = await HakunekoAdapter.init({
     context,
@@ -235,6 +254,63 @@ test('buildLinkContribution - null currentChapter when no chaptermark', async ()
     const id = env.adapter._encodeEntryId('mangalist', '/manga/solo-leveling');
     const contribution = await env.adapter.buildLinkContribution(id);
     assert.equal(contribution.currentChapter, null);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+// enrich (host-capability-contract.md §2, A8): the host's link-time contribution call. Array in,
+// array out, per-entry failure; the trailing callContext the host appends is not read.
+const CALL_CONTEXT = { credential: null, identity: null, scope: 'system', signal: new AbortController().signal };
+
+test('enrich - array in, array out: a bookmarked id carries buildLinkContribution\'s contribution, a missing one is not_found', async () => {
+  const env = await setupAdapter();
+  try {
+    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const missing = env.adapter._encodeEntryId('manhuaus', '/manga/not-bookmarked');
+    const results = await env.adapter.enrich([id, missing, 'no-separator'], CALL_CONTEXT);
+
+    assert.equal(results.length, 3);
+    assert.equal(results[0].pluginEntryId, id);
+    assert.equal(results[0].success, true);
+    assert.equal(results[0].contribution.pluginEntryId, id);
+    assert.equal(results[0].contribution.displayTitle, 'Legend of Star General');
+    assert.equal(results[0].contribution.folderPath, `${env.baseDir}/Legend of Star General/`);
+    assert.equal(results[0].contribution.currentChapter, 'Chapter 372');
+    for (const failed of [results[1], results[2]]) {
+      assert.equal(failed.success, false);
+      assert.equal(failed.contribution, undefined);
+      assert.equal(failed.error.code, 'not_found');
+      assert.equal(typeof failed.error.message, 'string');
+    }
+    assert.equal(results[1].pluginEntryId, missing);
+    assert.equal(results[2].pluginEntryId, 'no-separator');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('enrich - an unreadable bookmarks file is a per-entry source_error, never a throw', async () => {
+  const env = await setupAdapter();
+  try {
+    await fs.writeFile(env.bookmarksPath, '{not json', 'utf8');
+    const id = env.adapter._encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
+    const results = await env.adapter.enrich([id], CALL_CONTEXT);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].pluginEntryId, id);
+    assert.equal(results[0].success, false);
+    assert.equal(results[0].error.code, 'source_error');
+    assert.match(results[0].error.message, /Failed to parse/);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('enrich - empty or absent input is an empty array', async () => {
+  const env = await setupAdapter();
+  try {
+    assert.deepEqual(await env.adapter.enrich([], CALL_CONTEXT), []);
+    assert.deepEqual(await env.adapter.enrich(undefined, CALL_CONTEXT), []);
   } finally {
     await env.cleanup();
   }
