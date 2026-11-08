@@ -3,18 +3,19 @@
 /**
  * Plugin contract version and capability constants.
  *
- * PLUGIN_CONTRACT_VERSION: increment major on any breaking PluginAPILike change.
- * The host compares MAJOR only (`PluginPackageLoader._validateCompatibility()`), so every repo
- * that carries a mirror of this constant moves together on a major — host
- * `cls/mangalist/runtime/pluginpackageloader.cjs` plus this file in each of the six plugin repos,
- * seven mirrors in total.
+ * PLUGIN_CONTRACT_VERSION: the contract version this plugin is built against. The host's own number is
+ * `@manga-list/plugin-sdk`'s version (one number); `PluginPackageLoader._validateCompatibility()` rejects a
+ * different MAJOR and a MINOR newer than the host's. This file is a vendored mirror of that number — kept by the
+ * two adapters (HakuNeko, FMD2) and the template's adapter example only, until
+ * `Plan-2026Q4-adapter-plugin-standardization.md` replaces it with the SDK — so it moves with the SDK's major.
  *
- * 3.0.0 — the pre-register flat-tag vocabulary is deleted
- * (`docs/history/Plan-2026Q4-pre-register-vocabulary-removal.md`). There is no synonym expansion and
- * no legacy path: a plugin declares the strings below or it does not load.
+ * 4.0.0 — every operation method receives a trailing `callContext { credential, identity, scope, signal }` on
+ * every call (the host never calls `setCredentials`), and `syncOptions.statusVocabulary` is two tables,
+ * `{ push, pull }` (host-capability-contract.md §2, §2.2). The result shapes here are still the 3.x ones until the
+ * adapter plan.
  */
 
-const PLUGIN_CONTRACT_VERSION = '3.0.0';
+const PLUGIN_CONTRACT_VERSION = '4.0.0';
 const PLUGIN_SETTINGS_CONTRACT_VERSION = '1.0.0';
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,9 @@ const os = require('os');
 const { buildManifest, buildHakunekoPackage, collectTree } = require(path.join(
   __dirname, '..', '..', 'scripts', 'build-runtime-plugin-package.cjs',
 ));
+const { PLUGIN_CONTRACT_VERSION } = require(path.join(
+  __dirname, '..', '..', 'src', 'runtime', 'apiwrappers', 'plugindtocontract.cjs',
+));
 
 test('manifest - reflects plugin-package.json and injects hostApiVersion', () => {
   const manifest = buildManifest('1.0.0');
@@ -17,20 +20,31 @@ test('manifest - reflects plugin-package.json and injects hostApiVersion', () =>
   assert.equal(manifest.pluginType, 'adapter');
   assert.equal(manifest.hostApiVersion, '1.0.0');
   assert.deepEqual(manifest.capabilities, [
-    'file-path', 'search.query', 'sync.pull', 'sync.push', 'sync.list', 'watch.list', 'subscribe.add', 'watch.summary',
+    'file-path', 'search.query', 'enrich', 'sync.pull', 'sync.push', 'sync.list', 'watch.list', 'subscribe.add', 'watch.summary',
   ]);
   assert.equal(manifest.workspace.workspaceId, 'plugin:hakuneko');
   assert.equal(manifest.entrypoints.pluginModule, 'apiwrappers/reg-hakuneko/hakuneko-plugin-module.cjs');
   assert.equal(manifest.entrypoints.settingsFile, 'apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json');
 });
 
-test('manifest - syncOptions: chapter-only progressAxes + single-list statusVocabulary; no filterSchema', () => {
+test('manifest - contract 4.0.0: pluginContractVersion and the vendored constant agree', () => {
+  const manifest = buildManifest('1.0.0');
+  assert.equal(manifest.pluginContractVersion, '4.0.0');
+  assert.equal(PLUGIN_CONTRACT_VERSION, '4.0.0');
+});
+
+test('manifest - syncOptions: chapter-only progressAxes + two-table statusVocabulary (membership-only list); no filterSchema', () => {
   const manifest = buildManifest('1.0.0');
   assert.deepEqual(manifest.syncOptions.progressAxes, { pull: ['chapter'], push: ['chapter'] });
-  // HakuNeko has one reading list (the bookmarks file) — every canonical status maps to it.
-  for (const key of ['READING', 'COMPLETED', 'PLAN_TO_READ', 'ON_HOLD', 'DROPPED', 'RE_READING']) {
-    assert.equal(manifest.syncOptions.statusVocabulary[key], 'bookmarks');
-  }
+  // HakuNeko has one list (the bookmarks file), with no reading status: every host status pushes to it,
+  // and it pulls as null — a membership-only list (host-capability-contract.md §2.2, A16).
+  assert.deepEqual(manifest.syncOptions.statusVocabulary, {
+    push: {
+      READING: 'bookmarks', COMPLETED: 'bookmarks', PLAN_TO_READ: 'bookmarks',
+      ON_HOLD: 'bookmarks', DROPPED: 'bookmarks', RE_READING: 'bookmarks',
+    },
+    pull: { bookmarks: null },
+  });
   assert.equal(manifest.filterSchema, undefined);
 });
 
