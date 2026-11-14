@@ -18,7 +18,8 @@ test('manifest - reflects plugin-package.json and injects hostApiVersion', () =>
   assert.equal(manifest.pluginType, 'adapter');
   assert.equal(manifest.hostApiVersion, '1.0.0');
   assert.deepEqual(manifest.capabilities, [
-    'file-path', 'search.query', 'enrich', 'sync.pull', 'sync.push', 'sync.list', 'watch.list', 'subscribe.add', 'watch.summary',
+    'file-path', 'search.query', 'enrich', 'sync.pull', 'sync.push', 'sync.list', 'watch.list', 'subscribe.add', 'subscribe.remove',
+    'watch.summary',
   ]);
   assert.equal(manifest.workspace.workspaceId, 'plugin:hakuneko');
   assert.equal(manifest.entrypoints.pluginModule, 'apiwrappers/reg-hakuneko/hakuneko-plugin.cjs');
@@ -28,10 +29,14 @@ test('manifest - reflects plugin-package.json and injects hostApiVersion', () =>
   assert.equal(manifest.entrypoints.settingsFile, 'apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json');
 });
 
-test('manifest - contract 4.1.0: pluginContractVersion and the SDK\'s constant agree', () => {
+test('manifest - contract 4.2.0: pluginContractVersion and the SDK\'s constant agree', () => {
   const manifest = buildManifest('1.0.0');
-  assert.equal(manifest.pluginContractVersion, '4.1.0');
-  assert.equal(PLUGIN_CONTRACT_VERSION, '4.1.0');
+  assert.equal(manifest.pluginContractVersion, '4.2.0');
+  assert.equal(PLUGIN_CONTRACT_VERSION, '4.2.0');
+});
+
+test('manifest - watchOptions.wholeHolding: the bookmarks file is the whole holding (A28)', () => {
+  assert.deepEqual(buildManifest('1.0.0').watchOptions, { wholeHolding: true });
 });
 
 test('manifest - syncOptions: chapter-only progressAxes + two-table statusVocabulary (membership-only list); no filterSchema', () => {

@@ -112,7 +112,8 @@ function canonicalUrl(mangaKey) {
 
 /**
  * One `PluginReadingListEntry`: `status` the one list's token (`bookmarks`, which `pull` reads as no reading status,
- * A16), the chapter parsed here from the chaptermark (Decision 3: the plugin parses, the host compares).
+ * A16), the chapter parsed here from the chaptermark (Decision 3: the plugin parses, the host compares). `altTitles` is
+ * null: a bookmark carries one title (A30).
  * @param {Bookmark} bookmark
  * @param {Map<string, Chaptermark>} chapterByKey
  */
@@ -120,6 +121,7 @@ function readingListEntry(bookmark, chapterByKey) {
   return {
     pluginEntryId: encodeEntryId(bookmark.key.connector, bookmark.key.manga),
     title: bookmark.title.manga,
+    altTitles: null,
     canonicalUrl: canonicalUrl(bookmark.key.manga),
     status: 'bookmarks',
     chapter: parseChapterTitle(chapterTitleOf(bookmark, chapterByKey)),

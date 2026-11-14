@@ -2,7 +2,7 @@
   "pluginName": "hakuneko",
   "displayName": "HakuNeko",
   "pluginType": "adapter",
-  "pluginContractVersion": "4.1.0",
+  "pluginContractVersion": "4.2.0",
   "hostApiVersion": "1.0.0",
   "capabilities": [
     "file-path",
@@ -13,6 +13,7 @@
     "sync.list",
     "watch.list",
     "subscribe.add",
+    "subscribe.remove",
     "watch.summary"
   ],
   "iconPath": "images/hakuneko-icon.svg",
@@ -38,6 +39,9 @@
         "kind": "file"
       }
     ]
+  },
+  "watchOptions": {
+    "wholeHolding": true
   },
   "syncOptions": {
     "statusVocabulary": {
