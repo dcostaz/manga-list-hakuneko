@@ -38,6 +38,7 @@ const CHAPTERMARKS = [
 const LEGEND = map.encodeEntryId('manhuaus', '/manga/legend-of-star-general/');
 const ONE_PIECE = map.encodeEntryId('mangadex', 'https://mangadex.org/title/one-piece');
 const SOLO = map.encodeEntryId('mangalist', '/manga/solo-leveling');
+const BLEACH = map.encodeEntryId('mangadex', '/manga/bleach');
 
 /**
  * Fixture files in a temp folder and an instance; `ctx()` is a call carrying their grant.
@@ -70,6 +71,7 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
         pullProgress: [ONE_PIECE],
         pushProgress: [[{ pluginEntryId: LEGEND, chapter: 373 }]],
         subscribe: [[{ pluginEntryId: ONE_PIECE, status: 'bookmarks' }]],
+        unsubscribe: [[BLEACH]],
         summarizeEntries: [[LEGEND, ONE_PIECE]],
         getEntry: [ONE_PIECE],
       },
@@ -83,6 +85,8 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
       'A4.summarizeEntries-unknown-entry-is-not_found',
       'own.getEntry-unknown-id-is-null',
       'status.subscribe-refuses-a-host-status',
+      'unsubscribe.is-idempotent',
+      'perEntry.unsubscribe-never-throws-for-the-batch',
       'IV.no-public-method-outside-the-contract',
     ]) {
       assert.ok(report.passed.includes(id), `ran and passed ${id}`);
@@ -92,12 +96,14 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
   }
 });
 
-test('the descriptor and manifest: contract 4.1.0, file-path declared by its three path settings', () => {
+test('the descriptor and manifest: contract 4.2.0, file-path declared by its three path settings, the whole holding', () => {
   assert.equal(descriptor.pluginName, 'hakuneko');
   assert.equal(descriptor.displayName, 'HakuNeko');
-  assert.equal(manifest.pluginContractVersion, '4.1.0');
+  assert.equal(manifest.pluginContractVersion, '4.2.0');
   assert.deepEqual(manifest.filePathOptions.fields.map((/** @type {any} */ f) => f.key), ['downloadBaseDir', 'bookmarksPath', 'chaptermarksPath']);
-  assert.equal(typeof descriptor.WrapperClass.prototype.pullProgressBatch, 'function', 'the transitional read (A23) is kept');
+  assert.deepEqual(manifest.watchOptions, { wholeHolding: true }, 'every bookmark is on the list read (A28)');
+  assert.ok(manifest.capabilities.includes('subscribe.add') && manifest.capabilities.includes('subscribe.remove'), 'add declares remove (A29)');
+  assert.equal(descriptor.WrapperClass.prototype.pullProgressBatch, undefined, 'the transitional read is gone (A27)');
 });
 
 test('the paths come from the grant, never settings: a call without it is refused', async () => {
@@ -192,6 +198,8 @@ test('getReadingList - every bookmark, status "bookmarks", the chapter parsed he
     assert.equal(byId.get(ONE_PIECE).canonicalUrl, 'https://mangadex.org/title/one-piece');
     assert.equal(byId.get(LEGEND).canonicalUrl, null);
     assert.ok(list.every((/** @type {any} */ e) => e.status === 'bookmarks' && !('comparison' in e)));
+    assert.ok(list.every((/** @type {any} */ e) => e.altTitles === null), 'a bookmark carries one title: altTitles null (A30)');
+    assert.deepEqual(validateResult('getReadingList', list, { manifest }), []);
   } finally {
     await env.cleanup();
   }
@@ -205,7 +213,7 @@ test('an unreadable source is source_error, never an empty answer (A25): missing
     const folder = env.ctx({ credential: { ...env.grant, bookmarksPath: env.baseDir } });
     await assert.rejects(env.instance.listEntries({}, {}, folder), (e) => isPluginError(e) && /is a folder, not a file/.test(e.message));
     await fs.writeFile(env.grant.bookmarksPath, '{ not valid json', 'utf8');
-    await assert.rejects(env.instance.pullProgressBatch(undefined, env.ctx()), (e) => isPluginError(e) && e.code === 'source_error');
+    await assert.rejects(env.instance.getReadingList(env.ctx()), (e) => isPluginError(e) && e.code === 'source_error');
     const summary = await env.instance.summarizeEntries([LEGEND], env.ctx());
     assert.equal(summary[0].error.code, 'source_error');
   } finally {
@@ -259,19 +267,6 @@ test('getEntry - the detail row with the derived folder and whether it exists; u
   }
 });
 
-test('pullProgressBatch (the transitional read, A23) - unchanged: full discovery, narrowed with inList:false', async () => {
-  const env = await setup();
-  try {
-    const all = await env.instance.pullProgressBatch(undefined, env.ctx());
-    assert.equal(all.length, 5);
-    assert.deepEqual(all.find((/** @type {any} */ r) => r.pluginEntryId === LEGEND), { pluginEntryId: LEGEND, chapterTitle: 'Chapter 372', inList: true, title: 'Legend of Star General', connectorLabel: 'ManhuaUS' });
-    const narrowed = await env.instance.pullProgressBatch([ONE_PIECE, 'manhuaus::%2Fgone'], env.ctx());
-    assert.deepEqual(narrowed.map((/** @type {any} */ r) => [r.pluginEntryId, r.inList]), [[ONE_PIECE, true], ['manhuaus::%2Fgone', false]]);
-  } finally {
-    await env.cleanup();
-  }
-});
-
 test('pushProgress - applied is the chapter written; a bad entry fails alone; the good ones are written once', async () => {
   const env = await setup();
   try {
@@ -317,6 +312,59 @@ test('subscribe - PluginSubscribeResult: a present bookmark confirmed, a missing
     const before = await fs.readFile(env.grant.bookmarksPath, 'utf8');
     await env.instance.subscribe([{ pluginEntryId: NEW, status: 'bookmarks' }], env.ctx());
     assert.equal(await fs.readFile(env.grant.bookmarksPath, 'utf8'), before, 'confirming writes nothing');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('unsubscribe - PluginUnsubscribeResult: every row of the entry removed in one atomic write; the rest untouched', async () => {
+  const env = await setup({ bookmarks: [...BOOKMARKS, BOOKMARKS[1]] });
+  try {
+    const out = await env.instance.unsubscribe([ONE_PIECE, LEGEND], env.ctx());
+    assert.deepEqual(out, [{ pluginEntryId: ONE_PIECE, success: true }, { pluginEntryId: LEGEND, success: true }]);
+    assert.deepEqual(validateResult('unsubscribe', out, { manifest, inputIds: [ONE_PIECE, LEGEND] }), []);
+    const ids = (await env.instance.getReadingList(env.ctx())).map((/** @type {any} */ e) => e.pluginEntryId);
+    assert.deepEqual(ids.sort(), [SOLO, BLEACH, map.encodeEntryId('manhuaus', '/manga/naruto')].sort(), 'on no list afterwards, the duplicate row too');
+    assert.equal(fsSync.existsSync(`${env.grant.bookmarksPath}.tmp`), false, 'the write is atomic');
+    const chaptermarks = JSON.parse(await fs.readFile(env.grant.chaptermarksPath, 'utf8'));
+    assert.equal(chaptermarks.length, CHAPTERMARKS.length, 'the chaptermarks stay: subscribe never wrote them');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('unsubscribe - idempotent: an entry the file does not have, or an id naming no bookmark, is success and writes nothing', async () => {
+  const env = await setup();
+  try {
+    const before = await fs.readFile(env.grant.bookmarksPath, 'utf8');
+    const out = await env.instance.unsubscribe(['manhuaus::%2Fgone', 'no-separator'], env.ctx());
+    assert.deepEqual(out, [{ pluginEntryId: 'manhuaus::%2Fgone', success: true }, { pluginEntryId: 'no-separator', success: true }]);
+    assert.equal(await fs.readFile(env.grant.bookmarksPath, 'utf8'), before, 'nothing to remove writes nothing');
+    await env.instance.unsubscribe([SOLO], env.ctx());
+    assert.deepEqual(await env.instance.unsubscribe([SOLO], env.ctx()), [{ pluginEntryId: SOLO, success: true }], 'removing twice');
+    assert.deepEqual(await env.instance.unsubscribe([], env.ctx()), []);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('unsubscribe - per-entry failure: an unreadable file fails every entry, a failed write the entries it removed', async () => {
+  const env = await setup();
+  try {
+    const missing = env.ctx({ credential: { ...env.grant, bookmarksPath: path.join(env.baseDir, 'no-such.bookmarks') } });
+    const unread = await env.instance.unsubscribe([ONE_PIECE, 'manhuaus::%2Fgone'], missing);
+    assert.deepEqual(unread.map((/** @type {any} */ r) => [r.pluginEntryId, r.success, r.error && r.error.code]), [
+      [ONE_PIECE, false, 'source_error'], ['manhuaus::%2Fgone', false, 'source_error'],
+    ]);
+    // The temporary file's path is a folder: the write fails, the read before it does not.
+    await fs.mkdir(`${env.grant.bookmarksPath}.tmp`);
+    const before = await fs.readFile(env.grant.bookmarksPath, 'utf8');
+    const out = await env.instance.unsubscribe([ONE_PIECE, 'manhuaus::%2Fgone'], env.ctx());
+    assert.equal(out[0].success, false);
+    assert.equal(out[0].error.code, 'source_error');
+    assert.deepEqual(out[1], { pluginEntryId: 'manhuaus::%2Fgone', success: true }, 'an absent entry stays removed');
+    assert.deepEqual(validateResult('unsubscribe', out, { manifest, inputIds: [ONE_PIECE, 'manhuaus::%2Fgone'] }), []);
+    assert.equal(await fs.readFile(env.grant.bookmarksPath, 'utf8'), before, 'the file is unchanged');
   } finally {
     await env.cleanup();
   }

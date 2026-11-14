@@ -8,11 +8,10 @@
  * call (`view.paths`, contract A19), never read from settings.
  *
  * Offers (manifest): `file-path`, `search.query`, `enrich`, `sync.pull`, `sync.push` (the chapter axis only),
- * `sync.list` and `watch.list` (one method, `getReadingList`), `subscribe.add` (a bookmark row's presence is
- * membership; the manifest pushes every host status to the one `bookmarks` list and pulls it as no status, A16),
- * `watch.summary`; and the workspace surface's own-data reads, `listEntries` and `getEntry` (§5.4). `pullProgressBatch`
- * is the one transitional read (§5.4, A23), kept with its result unchanged until the sync refactor retires Pull Review.
- * The files are hakuneko-source.cjs's, the shapes hakuneko-mapping.cjs's.
+ * `sync.list` and `watch.list` (one method, `getReadingList`; the bookmarks file is the source's whole holding, A28),
+ * `subscribe.add` and `subscribe.remove` (a bookmark row's presence is membership; the manifest pushes every host status
+ * to the one `bookmarks` list and pulls it as no status, A16), `watch.summary`; and the workspace surface's own-data
+ * reads, `listEntries` and `getEntry` (§5.4). The files are hakuneko-source.cjs's, the shapes hakuneko-mapping.cjs's.
  */
 
 const path = require('path');
@@ -192,6 +191,47 @@ module.exports = definePlugin({
       return results.map(({ created, ...r }) => r);
     },
 
+    /**
+     * `subscribe.remove` (§2.1, A29): Leave List, `subscribe`'s inverse — every bookmark row with the entry's key is
+     * dropped (one read, one atomic write, made once), so the list read no longer returns it. Idempotent: an entry the
+     * file does not have, or an id naming no bookmark, is already removed. A failed write fails the entries it removed.
+     */
+    async unsubscribe(view, pluginEntryIds) {
+      const ids = Array.isArray(pluginEntryIds) ? pluginEntryIds.map(String) : [];
+      if (!ids.length) return [];
+      const client = clientOf(view);
+      const bookmarks = await client.bookmarks();
+      /** @type {Set<string>} */
+      const removing = new Set();
+      for (const id of ids) {
+        const decoded = map.decodeEntryId(id);
+        if (decoded) removing.add(map.encodeEntryId(decoded.connector, decoded.mangaKey));
+      }
+      /** @type {Set<string>} */
+      const removed = new Set();
+      const kept = bookmarks.filter((b) => {
+        if (!map.isValidBookmark(b)) return true;
+        const id = map.encodeEntryId(b.key.connector, b.key.manga);
+        if (!removing.has(id)) return true;
+        removed.add(id);
+        return false;
+      });
+      if (removed.size) {
+        try {
+          await client.writeBookmarks(kept);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return ids.map((pluginEntryId) => {
+            const decoded = map.decodeEntryId(pluginEntryId);
+            return decoded && removed.has(map.encodeEntryId(decoded.connector, decoded.mangaKey))
+              ? { pluginEntryId, success: false, error: { code: 'source_error', message } }
+              : { pluginEntryId, success: true };
+          });
+        }
+      }
+      return ids.map((pluginEntryId) => ({ pluginEntryId, success: true }));
+    },
+
     /** `watch.summary`: one read; a bookmark's label, or `not_found` for an entry missing from the file. */
     async summarizeEntries(view, pluginEntryIds) {
       const byId = map.bookmarksById(await clientOf(view).bookmarks());
@@ -245,29 +285,6 @@ module.exports = definePlugin({
       const chapterByKey = map.indexChaptermarks(await client.chaptermarks());
       const folderPath = map.deriveFolder(client.downloadBaseDir, bookmark.title.manga);
       return map.workspaceEntry(bookmark, chapterByKey, { folderPath, present: client.folderExists(folderPath) });
-    },
-
-    /**
-     * §5.4's transitional read (A23), its result unchanged for the host's Pull Review until the sync refactor retires
-     * it: one read of both files, raw per-entry rows, no parsing. Omitted or empty `entries`: every valid bookmark,
-     * `inList: true`. Narrowed: exactly those ids, in order, `inList: false` (with null title and connector) for one no
-     * longer in the file.
-     */
-    async pullProgressBatch(view, entries) {
-      const client = clientOf(view);
-      const byId = new Map();
-      for (const bookmark of (await client.bookmarks()).filter(map.isValidBookmark)) {
-        byId.set(map.encodeEntryId(bookmark.key.connector, bookmark.key.manga), bookmark);
-      }
-      const chapterByKey = map.indexChaptermarks(await client.chaptermarks());
-      /** @param {string} pluginEntryId @param {Bookmark | undefined} bookmark */
-      const toResult = (pluginEntryId, bookmark) => (bookmark
-        ? { pluginEntryId, chapterTitle: map.chapterTitleOf(bookmark, chapterByKey), inList: true, title: bookmark.title.manga, connectorLabel: bookmark.title.connector }
-        : { pluginEntryId, chapterTitle: null, inList: false, title: null, connectorLabel: null });
-      const requested = Array.isArray(entries) ? entries.filter((id) => typeof id === 'string' && id) : [];
-      return requested.length
-        ? requested.map((id) => toResult(id, byId.get(id)))
-        : [...byId.entries()].map(([id, bookmark]) => toResult(id, bookmark));
     },
   },
 });
