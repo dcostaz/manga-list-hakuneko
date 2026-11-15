@@ -2,7 +2,7 @@
 
 An adapter plugin for [manga-list](https://github.com/dcostaz/manga-list) over
 [HakuNeko Desktop](https://hakuneko.download/)'s bookmark files, built on
-[`@manga-list/plugin-sdk`](https://github.com/dcostaz/manga-list-plugin-sdk), contract **4.2.0**.
+[`@manga-list/plugin-sdk`](https://github.com/dcostaz/manga-list-plugin-sdk), contract **4.2.1**.
 
 HakuNeko has no remote API: the plugin reads and writes its `hakuneko.bookmarks` and `hakuneko.chaptermarks` JSON files
 directly. The files' paths are the access grant, sent by the host with each call; no credential is involved.
