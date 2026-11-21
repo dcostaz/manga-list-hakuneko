@@ -96,10 +96,10 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
   }
 });
 
-test('the descriptor and manifest: contract 4.2.1, file-path declared by its three path settings, the whole holding', () => {
+test('the descriptor and manifest: contract 4.4.0, file-path declared by its three path settings, the whole holding', () => {
   assert.equal(descriptor.pluginName, 'hakuneko');
   assert.equal(descriptor.displayName, 'HakuNeko');
-  assert.equal(manifest.pluginContractVersion, '4.2.1');
+  assert.equal(manifest.pluginContractVersion, '4.4.0');
   assert.deepEqual(manifest.filePathOptions.fields.map((/** @type {any} */ f) => f.key), ['downloadBaseDir', 'bookmarksPath', 'chaptermarksPath']);
   assert.deepEqual(manifest.watchOptions, { wholeHolding: true }, 'every bookmark is on the list read (A28)');
   assert.ok(manifest.capabilities.includes('subscribe.add') && manifest.capabilities.includes('subscribe.remove'), 'add declares remove (A29)');
