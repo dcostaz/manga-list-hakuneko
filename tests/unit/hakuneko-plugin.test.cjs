@@ -21,8 +21,6 @@ const descriptor = require(path.join(REG, 'hakuneko-plugin.cjs'));
 const manifest = require(path.join(REG, 'plugin-package.json'));
 const map = require(path.join(REG, 'hakuneko-mapping.cjs'));
 const golden = require(path.join(__dirname, '..', 'fixtures', 'golden-input.cjs'));
-const { SITE_LISTS, NOT_LISTS } = require(path.join(__dirname, '..', 'fixtures', 'site-lists.cjs'));
-const { createClient } = require(path.join(REG, 'hakuneko-source.cjs'));
 
 const BOOKMARKS = [
   { title: { connector: 'ManhuaUS', manga: 'Legend of Star General' }, key: { connector: 'manhuaus', manga: '/manga/legend-of-star-general/' } },
@@ -43,9 +41,8 @@ const SOLO = map.encodeEntryId('mangalist', '/manga/solo-leveling');
 const BLEACH = map.encodeEntryId('mangadex', '/manga/bleach');
 
 /**
- * Fixture files in a temp folder and an instance; `ctx()` is a call carrying their grant. `siteLists` writes HakuNeko's
- * site lists beside the bookmarks file (and the files there that are not lists); `settings` are the instance's.
- * @param {{ bookmarks?: object[], chaptermarks?: object[], siteLists?: boolean, settings?: Record<string, unknown> }} [opts]
+ * Fixture files in a temp folder and an instance; `ctx()` is a call carrying their grant; `settings` are the instance's.
+ * @param {{ bookmarks?: object[], chaptermarks?: object[], settings?: Record<string, unknown> }} [opts]
  */
 async function setup(opts = {}) {
   const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hakuneko-test-'));
@@ -56,12 +53,6 @@ async function setup(opts = {}) {
   };
   await fs.writeFile(grant.bookmarksPath, JSON.stringify(opts.bookmarks || BOOKMARKS, null, 2), 'utf8');
   await fs.writeFile(grant.chaptermarksPath, JSON.stringify(opts.chaptermarks || CHAPTERMARKS, null, 2), 'utf8');
-  if (opts.siteLists) {
-    for (const [connector, entries] of Object.entries(SITE_LISTS)) {
-      await fs.writeFile(path.join(baseDir, `hakuneko.mangas.${connector}`), JSON.stringify(entries), 'utf8');
-    }
-    for (const [name, text] of Object.entries(NOT_LISTS)) await fs.writeFile(path.join(baseDir, name), text, 'utf8');
-  }
   const serviceSettings = { bookmarksPath: '/never/read/from/settings', ...(opts.settings || {}) };
   const instance = await descriptor.WrapperClass.init({ context: createStubContext(), serviceSettings });
   const ctx = (/** @type {Record<string, any>} */ overrides = {}) => callContext({ credential: grant, identity: 'user-slot', scope: 'user-label', ...overrides });
@@ -69,7 +60,7 @@ async function setup(opts = {}) {
 }
 
 test('the contract suite, the adapter cases among them, passes with 0 failures', async () => {
-  const env = await setup({ siteLists: true });
+  const env = await setup();
   try {
     const report = await runConformance({
       WrapperClass: descriptor.WrapperClass,
@@ -405,7 +396,7 @@ test('the mapping\'s chapter parse mirrors the host\'s: "Chapter N", "Ch.N", non
   assert.equal(map.parseChapterTitle(null), null);
 });
 
-// ── contract 4.4.0: the record on each candidate (A32), every hit (A35, A36), the site lists (Decision 27, A38) ──
+// ── contract 4.4.0: the record on each candidate (A32), every hit (A35, A36) ──
 
 test('search - each candidate carries its record (A32): title, site with its path, last chapter read, folder; nothing HakuNeko does not hold', async () => {
   const env = await setup();
@@ -420,7 +411,7 @@ test('search - each candidate carries its record (A32): title, site with its pat
         progress: { chapter: 372 },
         folder: { path: `${env.baseDir}/Legend of Star General/`, exists: false },
       },
-    }, 'a site path names the site and gives no link; no site lists beside the bookmarks: no links');
+    }, 'a site path names the site and gives no link');
     await fs.mkdir(path.join(env.baseDir, 'Solo Leveling'));
     const [solo] = await env.instance.search('Solo Leveling', undefined, env.ctx());
     assert.deepEqual(solo.detail.display.folder, { path: `${env.baseDir}/Solo Leveling/`, exists: true });
@@ -429,32 +420,6 @@ test('search - each candidate carries its record (A32): title, site with its pat
     assert.deepEqual(onePiece.detail.display.site, { id: 'mangadex', label: 'MangaDex' }, 'a full-URL key is a link, not a path');
     assert.deepEqual(onePiece.detail.display.links, [{ label: 'MangaDex', url: 'https://mangadex.org/title/one-piece', type: 'site' }]);
     assert.deepEqual(validateResult('search', [legend, solo, onePiece], { manifest }), []);
-  } finally {
-    await env.cleanup();
-  }
-});
-
-test('search - the site lists beside the bookmarks add the other sites a series is listed on, as links where the id is a full URL', async () => {
-  const env = await setup({ siteLists: true });
-  try {
-    const [onePiece] = await env.instance.search('One Piece', undefined, env.ctx());
-    assert.deepEqual(onePiece.detail.display.links, [
-      { label: 'MangaDex', url: 'https://mangadex.org/title/one-piece', type: 'site' },
-      { label: 'manganel', url: 'https://chapmanganelo.com/manga-op1', type: 'site' },
-    ], "its own connector's list left out; readm's path gives no link; the .tmp and the broken file ignored");
-    const [legend] = await env.instance.search('Legend of Star General', undefined, env.ctx());
-    assert.deepEqual(legend.detail.display.links, [{ label: 'manganel', url: 'https://chapmanganelo.com/manga-lsg', type: 'site' }], 'matched across case, punctuation and spacing');
-    assert.deepEqual(validateResult('search', [onePiece, legend], { manifest }), []);
-  } finally {
-    await env.cleanup();
-  }
-});
-
-test('search - a series found only on a site list is not a result (Decision 27)', async () => {
-  const env = await setup({ siteLists: true });
-  try {
-    assert.deepEqual(await env.instance.search('Only On A Site List', undefined, env.ctx()), []);
-    assert.deepEqual(await env.instance.search('Only On A Site List', { allHits: true }, env.ctx()), []);
   } finally {
     await env.cleanup();
   }
@@ -493,56 +458,14 @@ test('the settings declare search.resultCap as agreed: number, default 25, 1-25,
   assert.ok(!manifest.capabilities.includes('search.lookup'), 'HakuNeko declares no lookup');
 });
 
-test('the site-list index: each list read and indexed once while unchanged, again when it changes, dropped when it goes', async () => {
-  const env = await setup({ siteLists: true });
-  try {
-    /** @type {unknown[][]} */
-    const indexed = [];
-    const factory = createClient({ settings: {}, utils: {}, indexSiteList: (/** @type {unknown[]} */ entries) => { indexed.push(entries); return map.siteListIndex(entries); } });
-    const client = factory({ paths: env.grant });
-    const first = await client.siteLists();
-    assert.deepEqual(first.map((l) => l.connector).sort(), ['mangadex', 'manganel', 'manhuaus', 'readm'], 'the broken list and the .tmp file are no lists');
-    assert.equal(indexed.length, 4);
-    await Promise.all([client.siteLists(), client.siteLists()]);
-    assert.equal(indexed.length, 4, 'unchanged files are never read again');
-    await fs.writeFile(path.join(env.baseDir, 'hakuneko.mangas.readm'), JSON.stringify([{ id: 'https://readm.example/one-piece', title: 'One Piece' }, { id: '/x', title: 'X' }]), 'utf8');
-    const changed = await client.siteLists();
-    assert.equal(indexed.length, 5, 'the changed list alone is read again');
-    const readm = changed.find((l) => l.connector === 'readm');
-    assert.deepEqual(readm && readm.byTitle.get('onepiece'), ['https://readm.example/one-piece']);
-    await fs.rm(path.join(env.baseDir, 'hakuneko.mangas.manhuaus'));
-    assert.deepEqual((await client.siteLists()).map((l) => l.connector).sort(), ['mangadex', 'manganel', 'readm']);
-  } finally {
-    await env.cleanup();
-  }
-});
-
-test('the site lists missing, or their folder unreadable, leave the bookmark without links, never an error', async () => {
-  const env = await setup();
-  try {
-    const factory = createClient({ settings: {}, utils: {}, indexSiteList: map.siteListIndex });
-    assert.deepEqual(await factory({ paths: env.grant }).siteLists(), []);
-    assert.deepEqual(await factory({ paths: { ...env.grant, bookmarksPath: path.join(env.baseDir, 'no-such-folder', 'hakuneko.bookmarks') } }).siteLists(), []);
-    const [legend] = await env.instance.search('Legend of Star General', { allHits: true }, env.ctx());
-    assert.equal(legend.detail.display.links, undefined);
-  } finally {
-    await env.cleanup();
-  }
-});
-
-test('the mapping - titleKey, siteListIndex, connectorLabels and entryRecord are pure, and hold only what HakuNeko holds', () => {
-  assert.equal(map.titleKey('  LEGEND  of Star-General! '), 'legendofstargeneral');
-  assert.equal(map.titleKey('全知読者視点'), '全知読者視点', 'letters of any script kept');
-  const index = map.siteListIndex([
-    { id: 'https://a.example/1', title: 'One Piece' }, { id: 'https://b.example/1', title: 'one piece' }, { id: '/manga/one-piece', title: 'One Piece' },
-    { id: 'https://c.example/1', title: '' }, { id: '', title: 'X' }, null, { title: 'no id' },
-  ]);
-  assert.deepEqual([...index], [['onepiece', ['https://a.example/1', 'https://b.example/1']]], 'a site path gives no link, so it is not kept');
-  assert.equal(map.connectorLabels(BOOKMARKS).get('mangadex'), 'MangaDex');
+test('the mapping - entryRecord is pure and holds only what HakuNeko holds', () => {
   const bare = { title: { connector: '', manga: 'Bare' }, key: { connector: 'mangalist', manga: '' } };
-  const record = map.entryRecord(bare, { chapterByKey: new Map(), folder: { path: '/d/Bare/', exists: false }, lists: [], labels: new Map() });
+  const record = map.entryRecord(bare, { chapterByKey: new Map(), folder: { path: '/d/Bare/', exists: false } });
   assert.deepEqual(record, {
     displayTitle: 'Bare',
     display: { titles: [{ title: 'Bare', kind: 'main' }], site: { id: 'mangalist', label: 'Manga List' }, folder: { path: '/d/Bare/', exists: false } },
-  }, "an empty label falls back to the connector's; an empty key is no path");
+  }, "an empty label falls back to the connector's; an empty key is no path, no link");
+  const url = { title: { connector: 'MangaDex', manga: 'One Piece' }, key: { connector: 'mangadex', manga: 'https://mangadex.org/title/one-piece' } };
+  const linked = map.entryRecord(url, { chapterByKey: new Map(), folder: { path: '/d/One Piece/', exists: true } });
+  assert.deepEqual(linked.display && linked.display.links, [{ label: 'MangaDex', url: 'https://mangadex.org/title/one-piece', type: 'site' }], 'a full-URL key is its one link');
 });

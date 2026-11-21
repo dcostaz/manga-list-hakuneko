@@ -13,10 +13,9 @@
  * to the one `bookmarks` list and pulls it as no status, A16), `watch.summary`; and the workspace surface's own-data
  * reads, `listEntries` and `getEntry` (§5.4). The files are hakuneko-source.cjs's, the shapes hakuneko-mapping.cjs's.
  *
- * Contract 4.4.0: each search candidate carries its record (A32) — the bookmark's site, last chapter read, folder and
- * the other sites its series is listed on (HakuNeko's site lists, display information on the bookmark, A38); and
- * `allHits` answers every matching bookmark up to `search.resultCap` (A35, A36). A series found only on a site list is
- * never a candidate (manga-list Plan-2026Q4-interface-refactor-tracker-search, Decision 27). No `search.lookup`.
+ * Contract 4.4.0: each search candidate carries its record (A32) — the bookmark's site, last chapter read and folder;
+ * and `allHits` answers every matching bookmark up to `search.resultCap` (A35, A36). The candidates are the bookmarks
+ * (A38). HakuNeko is its three granted paths and nothing else. No `search.lookup`.
  */
 
 const path = require('path');
@@ -71,13 +70,13 @@ function searchOptionsOf(options) {
 module.exports = definePlugin({
   manifest,
   settings,
-  createClient: (deps) => createClient({ ...deps, indexSiteList: map.siteListIndex }),
+  createClient,
   methods: {
     /**
      * `search.query`: candidates over the bookmarks, best first. Each term is matched on sanitized titles (exact,
      * containment, fuzzy); a bookmark matched by several terms keeps its best confidence. Without `allHits`, up to
      * `options.limit` (10); with it (A35), every matching bookmark up to the result cap (A36). Each candidate carries
-     * its record (A32): the bookmark, its chaptermark, its folder and the site lists beside the bookmarks file.
+     * its record (A32): the bookmark, its chaptermark and its folder.
      * @returns {Promise<PluginMatchCandidate[]>}
      */
     async search(view, query, options) {
@@ -104,8 +103,6 @@ module.exports = definePlugin({
       const answered = hits.sort((a, b) => b.confidence - a.confidence).slice(0, limit);
       if (!answered.length) return [];
       const chapterByKey = map.indexChaptermarks(await client.chaptermarks());
-      const lists = await client.siteLists();
-      const labels = map.connectorLabels(bookmarks);
       return answered.map(({ pluginEntryId, bookmark, confidence }) => {
         const folderPath = map.deriveFolder(client.downloadBaseDir, bookmark.title.manga);
         return {
@@ -113,7 +110,7 @@ module.exports = definePlugin({
           title: bookmark.title.manga,
           confidence,
           canonicalUrl: map.canonicalUrl(bookmark.key.manga),
-          detail: map.entryRecord(bookmark, { chapterByKey, folder: { path: folderPath, exists: client.folderExists(folderPath) }, lists, labels }),
+          detail: map.entryRecord(bookmark, { chapterByKey, folder: { path: folderPath, exists: client.folderExists(folderPath) } }),
         };
       });
     },
