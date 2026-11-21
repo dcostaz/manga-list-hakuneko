@@ -2,7 +2,7 @@
   "pluginName": "hakuneko",
   "displayName": "HakuNeko",
   "pluginType": "adapter",
-  "pluginContractVersion": "4.2.1",
+  "pluginContractVersion": "4.4.0",
   "hostApiVersion": "1.0.0",
   "capabilities": [
     "file-path",

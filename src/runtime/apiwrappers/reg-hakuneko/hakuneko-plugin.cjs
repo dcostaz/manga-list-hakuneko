@@ -12,6 +12,10 @@
  * `subscribe.add` and `subscribe.remove` (a bookmark row's presence is membership; the manifest pushes every host status
  * to the one `bookmarks` list and pulls it as no status, A16), `watch.summary`; and the workspace surface's own-data
  * reads, `listEntries` and `getEntry` (§5.4). The files are hakuneko-source.cjs's, the shapes hakuneko-mapping.cjs's.
+ *
+ * Contract 4.4.0: each search candidate carries its record (A32) — the bookmark's site, last chapter read and folder;
+ * and `allHits` answers every matching bookmark up to `search.resultCap` (A35, A36). The candidates are the bookmarks
+ * (A38). HakuNeko is its three granted paths and nothing else. No `search.lookup`.
  */
 
 const path = require('path');
@@ -23,6 +27,13 @@ const map = require(path.join(__dirname, 'hakuneko-mapping.cjs'));
 
 /** @typedef {import('./hakuneko-source.cjs').HakunekoClient} HakunekoClient */
 /** @typedef {import('./hakuneko-mapping.cjs').Bookmark} Bookmark */
+/** @typedef {import('@manga-list/plugin-sdk').PluginMatchCandidate} PluginMatchCandidate */
+/** @typedef {import('@manga-list/plugin-sdk').PluginSearchOptions} PluginSearchOptions */
+
+/**
+ * `search`'s options: the contract's (`allHits`, A35) and HakuNeko's own matching knobs, which a caller may pass.
+ * @typedef {PluginSearchOptions & { limit?: number, enableFuzzy?: boolean, maxEditDistance?: number, minSimilarity?: number }} HakunekoSearchOptions
+ */
 
 /** @param {{ client: HakunekoClient }} view @returns {HakunekoClient} */
 const clientOf = (view) => view.client;
@@ -37,36 +48,71 @@ function bookmarkFor(byId, pluginEntryId) {
   return decoded ? byId.get(map.encodeEntryId(decoded.connector, decoded.mangaKey)) : undefined;
 }
 
+/**
+ * The search options as given, narrowed: a field of the wrong type is ignored.
+ * @param {unknown} options
+ * @returns {HakunekoSearchOptions}
+ */
+function searchOptionsOf(options) {
+  if (!options || typeof options !== 'object') return {};
+  const o = /** @type {Record<string, unknown>} */ (options); // an object, checked on the line above
+  /** @type {HakunekoSearchOptions} */
+  const out = {};
+  if (o.allHits === true) out.allHits = true;
+  if (o.refresh === true) out.refresh = true;
+  if (typeof o.limit === 'number' && Number.isInteger(o.limit) && o.limit > 0) out.limit = o.limit;
+  if (typeof o.enableFuzzy === 'boolean') out.enableFuzzy = o.enableFuzzy;
+  if (typeof o.maxEditDistance === 'number' && Number.isFinite(o.maxEditDistance)) out.maxEditDistance = o.maxEditDistance;
+  if (typeof o.minSimilarity === 'number' && Number.isFinite(o.minSimilarity)) out.minSimilarity = o.minSimilarity;
+  return out;
+}
+
 module.exports = definePlugin({
   manifest,
   settings,
   createClient,
   methods: {
     /**
-     * `search.query`: candidates over the bookmarks, best first, up to `options.limit` (10). Each term is matched on
-     * sanitized titles (exact, containment, fuzzy); a bookmark matched by several terms keeps its best confidence.
+     * `search.query`: candidates over the bookmarks, best first. Each term is matched on sanitized titles (exact,
+     * containment, fuzzy); a bookmark matched by several terms keeps its best confidence. Without `allHits`, up to
+     * `options.limit` (10); with it (A35), every matching bookmark up to the result cap (A36). Each candidate carries
+     * its record (A32): the bookmark, its chaptermark and its folder.
+     * @returns {Promise<PluginMatchCandidate[]>}
      */
     async search(view, query, options) {
-      const opts = options && typeof options === 'object' ? options : {};
-      const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 10;
+      const opts = searchOptionsOf(options);
+      const limit = opts.allHits ? clientOf(view).resultCap : (opts.limit || 10);
       const scoring = {
         enableFuzzy: opts.enableFuzzy !== false,
-        maxEditDistance: Number.isFinite(opts.maxEditDistance) ? opts.maxEditDistance : 12,
-        minSimilarity: Number.isFinite(opts.minSimilarity) ? opts.minSimilarity : 0.85,
+        maxEditDistance: opts.maxEditDistance ?? 12,
+        minSimilarity: opts.minSimilarity ?? 0.85,
       };
       const client = clientOf(view);
       const terms = (Array.isArray(query) ? query : [query])
         .filter((value) => typeof value === 'string' && value.trim())
         .map((term) => client.sanitize(term));
       if (!terms.length) return [];
-      /** @type {Array<{ pluginEntryId: string, title: string, confidence: number, canonicalUrl: string | null }>} */
-      const out = [];
-      for (const [pluginEntryId, bookmark] of map.bookmarksById(await client.bookmarks())) {
+      const bookmarks = await client.bookmarks();
+      /** @type {Array<{ pluginEntryId: string, bookmark: Bookmark, confidence: number }>} */
+      const hits = [];
+      for (const [pluginEntryId, bookmark] of map.bookmarksById(bookmarks)) {
         const sTitle = client.sanitize(bookmark.title.manga);
         const confidence = Math.max(0, ...terms.map((term) => map.matchScore(term, sTitle, scoring)));
-        if (confidence > 0) out.push({ pluginEntryId, title: bookmark.title.manga, confidence, canonicalUrl: map.canonicalUrl(bookmark.key.manga) });
+        if (confidence > 0) hits.push({ pluginEntryId, bookmark, confidence });
       }
-      return out.sort((a, b) => b.confidence - a.confidence).slice(0, limit);
+      const answered = hits.sort((a, b) => b.confidence - a.confidence).slice(0, limit);
+      if (!answered.length) return [];
+      const chapterByKey = map.indexChaptermarks(await client.chaptermarks());
+      return answered.map(({ pluginEntryId, bookmark, confidence }) => {
+        const folderPath = map.deriveFolder(client.downloadBaseDir, bookmark.title.manga);
+        return {
+          pluginEntryId,
+          title: bookmark.title.manga,
+          confidence,
+          canonicalUrl: map.canonicalUrl(bookmark.key.manga),
+          detail: map.entryRecord(bookmark, { chapterByKey, folder: { path: folderPath, exists: client.folderExists(folderPath) } }),
+        };
+      });
     },
 
     /** `enrich`: per entry; an id with no bookmark is its entry's `not_found`. */

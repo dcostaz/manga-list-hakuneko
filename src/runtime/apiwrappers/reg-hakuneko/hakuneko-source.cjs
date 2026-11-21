@@ -13,7 +13,7 @@
 
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const { PluginError } = require('@manga-list/plugin-sdk');
+const { PluginError, resultCapOf } = require('@manga-list/plugin-sdk');
 
 /**
  * @param {string} filePath
@@ -60,18 +60,22 @@ async function writeArray(filePath, data) {
 
 /**
  * The client factory: each call's client reads and writes the files its grant names.
- * @param {{ utils: Record<string, any> }} deps
+ * @param {{ settings: Record<string, unknown>, utils: Record<string, any> }} deps
  */
-function createClient({ utils }) {
+function createClient({ settings, utils }) {
   /** @param {string} text */
   const sanitize = (text) => (utils && typeof utils.sanitizeForSearch === 'function'
     ? utils.sanitizeForSearch(text)
     : (typeof text === 'string' ? text.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '') : ''));
+  const resultCap = resultCapOf(settings);
+
   return (/** @type {{ paths: Record<string, string> | null }} */ view) => {
     const paths = view.paths || {};
     return {
       downloadBaseDir: paths.downloadBaseDir,
       sanitize,
+      /** A36: the most hits an `allHits` search answers. */
+      resultCap,
       bookmarks: () => readArray(paths.bookmarksPath),
       chaptermarks: () => readArray(paths.chaptermarksPath),
       writeBookmarks: (/** @type {unknown[]} */ data) => writeArray(paths.bookmarksPath, data),

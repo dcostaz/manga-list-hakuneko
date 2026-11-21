@@ -13,6 +13,10 @@
 
 /** @typedef {{ title: { connector: string, manga: string }, key: { connector: string, manga: string } }} Bookmark */
 /** @typedef {{ mangaID: string, connectorID: string, chapterID?: string, chapterTitle?: string }} Chaptermark */
+/** @typedef {import('@manga-list/plugin-sdk').PluginEntryRecord} PluginEntryRecord */
+/** @typedef {import('@manga-list/plugin-sdk').PluginEntryDisplay} PluginEntryDisplay */
+/** @typedef {import('@manga-list/plugin-sdk').PluginDisplaySite} PluginDisplaySite */
+/** @typedef {import('@manga-list/plugin-sdk').PluginDisplayFolder} PluginDisplayFolder */
 
 /** @param {string} connector @param {string} mangaKey @returns {string} */
 function encodeEntryId(connector, mangaKey) {
@@ -158,6 +162,35 @@ function cardSummary(bookmark) {
 }
 
 /**
+ * A32: the record a search candidate carries, without its identity: the bookmark's title, its site (the connector's id
+ * and label, the series key as `path` when it is a site path), the last chapter read, the download folder, and the series
+ * key as its one link when it is a full URL (a path gives no link, the site's address being unknown). HakuNeko holds no
+ * cover, status, genres or description; a field it does not hold is absent.
+ * @param {Bookmark} bookmark
+ * @param {{ chapterByKey: Map<string, Chaptermark>, folder: PluginDisplayFolder }} held
+ * @returns {PluginEntryRecord}
+ */
+function entryRecord(bookmark, { chapterByKey, folder }) {
+  const connector = bookmark.key.connector;
+  const label = bookmark.title.connector || connectorLabel(connector);
+  const url = canonicalUrl(bookmark.key.manga);
+  const chapter = parseChapterTitle(chapterTitleOf(bookmark, chapterByKey));
+  const links = url ? [{ label, url, type: 'site' }] : [];
+  /** @type {PluginDisplaySite | undefined} */
+  const site = connector ? { id: connector, label, ...(!url && bookmark.key.manga ? { path: bookmark.key.manga } : {}) } : undefined;
+  const title = bookmark.title.manga;
+  /** @type {PluginEntryDisplay} */
+  const display = {
+    ...(title ? { titles: [{ title, kind: /** @type {const} */ ('main') }] } : {}),
+    ...(site ? { site } : {}),
+    ...(chapter !== null ? { progress: { chapter } } : {}),
+    folder,
+    ...(links.length ? { links } : {}),
+  };
+  return { ...(title ? { displayTitle: title } : {}), display };
+}
+
+/**
  * The plugin's own catalog entry (§5.4): `pluginEntryId` and `title` for the host; `fields`, which the workspace
  * surface renders, its own. `detail` adds the derived folder and whether it exists (one stat, so `getEntry` only).
  * @param {Bookmark} bookmark
@@ -241,5 +274,6 @@ function matchScore(sTerm, sTitle, opts) {
 module.exports = {
   encodeEntryId, decodeEntryId, isValidBookmark, bookmarksById, indexChaptermarks, chapterTitleOf, parseChapterTitle,
   formatChapterTitle, connectorLabel, deriveFolder, canonicalUrl, readingListEntry, contribution, cardSummary,
+  entryRecord,
   workspaceEntry, resolveSort, levenshtein, matchScore,
 };

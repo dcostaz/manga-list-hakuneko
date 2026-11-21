@@ -52,11 +52,27 @@
           { "name": "All files", "extensions": ["*"] }
         ]
       }
+    },
+    "search.resultCap": {
+      "type": "number",
+      "required": true,
+      "default": 25,
+      "isBasic": true,
+      "label": "Search result cap",
+      "description": "How many bookmarks this source gives when Tracker Search asks for every match",
+      "validation": {
+        "min": 1,
+        "max": 25
+      },
+      "readOnly": false,
+      "category": "performance",
+      "order": 40
     }
   },
   "settings": {
     "downloadBaseDir": "",
     "bookmarksPath": "",
-    "chaptermarksPath": ""
+    "chaptermarksPath": "",
+    "search.resultCap": 25
   }
 }

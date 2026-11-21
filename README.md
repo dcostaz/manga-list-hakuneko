@@ -2,10 +2,18 @@
 
 An adapter plugin for [manga-list](https://github.com/dcostaz/manga-list) over
 [HakuNeko Desktop](https://hakuneko.download/)'s bookmark files, built on
-[`@manga-list/plugin-sdk`](https://github.com/dcostaz/manga-list-plugin-sdk), contract **4.2.1**.
+[`@manga-list/plugin-sdk`](https://github.com/dcostaz/manga-list-plugin-sdk), contract **4.4.0**.
 
 HakuNeko has no remote API: the plugin reads and writes its `hakuneko.bookmarks` and `hakuneko.chaptermarks` JSON files
-directly. The files' paths are the access grant, sent by the host with each call; no credential is involved.
+directly. The files' paths are the access grant, sent by the host with each call; no credential is involved. The
+plugin reads only its three granted paths (`bookmarksPath`, `chaptermarksPath`, `downloadBaseDir`) and nothing else of
+HakuNeko's: its cached site lists (`hakuneko.mangas.<connector>`) are not part of the source.
+
+**What 4.4.0 changed** (manga-list's Tracker Search): each search candidate carries its record, `detail` (A32): the
+bookmark's title, its site (connector id and label, the series key as the site's `path`, or a link when the key is a
+full URL), the last chapter read, and the download folder and whether it exists. `search(query, { allHits: true })`
+answers every matching bookmark up to the `search.resultCap` setting (A35, A36); without it, the answer is the one it
+always was. The candidates are the bookmarks (A38).
 
 ## The plugin
 
@@ -22,7 +30,7 @@ src/runtime/web/          the workspace surface (contract §4)
 | Declared | Method | |
 | --- | --- | --- |
 | `file-path` | — | `downloadBaseDir`, `bookmarksPath`, `chaptermarksPath` arrive in each call (`filePathOptions.fields`); never read from settings. |
-| `search.query` | `search` | Candidates over the bookmarks, best first: exact title 1.0, containment 0.70–0.95, fuzzy 0.70–0.85. |
+| `search.query` | `search` | Candidates over the bookmarks, best first: exact title 1.0, containment 0.70–0.95, fuzzy 0.70–0.85; up to `options.limit` (10), or with `allHits` every match up to `search.resultCap`. Each carries `detail`: title, site, last chapter read, folder; a full-URL key as its one link. No `search.lookup`: a bookmark's record is all HakuNeko holds. |
 | `enrich` | `enrich` | Identity, connector, the derived folder, the last chapter read. |
 | `sync.pull` | `pullProgress` | On the list: `status: 'bookmarks'` and the chaptermark's chapter; off it, every field null. |
 | `sync.push` | `pushProgress` | The chapter axis only; one atomic write per batch, made once; never creates a bookmark. |
@@ -51,6 +59,9 @@ never an empty answer.
 
 `downloadBaseDir`, `bookmarksPath` and `chaptermarksPath` (`HakunekoSettings`), the system's with a per-user override.
 The host resolves them for the side of each call and sends them as the path grant.
+
+`search.resultCap` (number, 1–25, 25 by default): how many bookmarks a search answers when Tracker Search asks for
+every match (`allHits`).
 
 ## Build and test
 

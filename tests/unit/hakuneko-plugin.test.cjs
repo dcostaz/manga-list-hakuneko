@@ -41,8 +41,8 @@ const SOLO = map.encodeEntryId('mangalist', '/manga/solo-leveling');
 const BLEACH = map.encodeEntryId('mangadex', '/manga/bleach');
 
 /**
- * Fixture files in a temp folder and an instance; `ctx()` is a call carrying their grant.
- * @param {{ bookmarks?: object[], chaptermarks?: object[] }} [opts]
+ * Fixture files in a temp folder and an instance; `ctx()` is a call carrying their grant; `settings` are the instance's.
+ * @param {{ bookmarks?: object[], chaptermarks?: object[], settings?: Record<string, unknown> }} [opts]
  */
 async function setup(opts = {}) {
   const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hakuneko-test-'));
@@ -53,7 +53,8 @@ async function setup(opts = {}) {
   };
   await fs.writeFile(grant.bookmarksPath, JSON.stringify(opts.bookmarks || BOOKMARKS, null, 2), 'utf8');
   await fs.writeFile(grant.chaptermarksPath, JSON.stringify(opts.chaptermarks || CHAPTERMARKS, null, 2), 'utf8');
-  const instance = await descriptor.WrapperClass.init({ context: createStubContext(), serviceSettings: { bookmarksPath: '/never/read/from/settings' } });
+  const serviceSettings = { bookmarksPath: '/never/read/from/settings', ...(opts.settings || {}) };
+  const instance = await descriptor.WrapperClass.init({ context: createStubContext(), serviceSettings });
   const ctx = (/** @type {Record<string, any>} */ overrides = {}) => callContext({ credential: grant, identity: 'user-slot', scope: 'user-label', ...overrides });
   return { baseDir, grant, instance, ctx, cleanup: () => fs.rm(baseDir, { recursive: true, force: true }) };
 }
@@ -67,6 +68,7 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
       manifest,
       credentials: [env.grant, env.grant],
       inputs: {
+        search: ['One Piece', undefined],
         enrich: [[LEGEND, 'manhuaus::%2Fno-such']],
         pullProgress: [ONE_PIECE],
         pushProgress: [[{ pluginEntryId: LEGEND, chapter: 373 }]],
@@ -88,18 +90,20 @@ test('the contract suite, the adapter cases among them, passes with 0 failures',
       'unsubscribe.is-idempotent',
       'perEntry.unsubscribe-never-throws-for-the-batch',
       'IV.no-public-method-outside-the-contract',
+      'A35.allHits-answers-at-least-the-filtered-hits-and-at-most-the-cap',
     ]) {
       assert.ok(report.passed.includes(id), `ran and passed ${id}`);
     }
+    assert.deepEqual(report.skipped, [], 'A38 needs search.lookup, which HakuNeko does not declare; nothing else is skipped');
   } finally {
     await env.cleanup();
   }
 });
 
-test('the descriptor and manifest: contract 4.2.1, file-path declared by its three path settings, the whole holding', () => {
+test('the descriptor and manifest: contract 4.4.0, file-path declared by its three path settings, the whole holding', () => {
   assert.equal(descriptor.pluginName, 'hakuneko');
   assert.equal(descriptor.displayName, 'HakuNeko');
-  assert.equal(manifest.pluginContractVersion, '4.2.1');
+  assert.equal(manifest.pluginContractVersion, '4.4.0');
   assert.deepEqual(manifest.filePathOptions.fields.map((/** @type {any} */ f) => f.key), ['downloadBaseDir', 'bookmarksPath', 'chaptermarksPath']);
   assert.deepEqual(manifest.watchOptions, { wholeHolding: true }, 'every bookmark is on the list read (A28)');
   assert.ok(manifest.capabilities.includes('subscribe.add') && manifest.capabilities.includes('subscribe.remove'), 'add declares remove (A29)');
@@ -127,7 +131,9 @@ test('search - candidates best first: an exact title 1.0, containment and fuzzy 
   const env = await setup();
   try {
     const exact = await env.instance.search('One Piece', undefined, env.ctx());
-    assert.deepEqual(exact[0], { pluginEntryId: ONE_PIECE, title: 'One Piece', confidence: 1.0, canonicalUrl: 'https://mangadex.org/title/one-piece' });
+    const { detail, ...candidate } = exact[0];
+    assert.deepEqual(candidate, { pluginEntryId: ONE_PIECE, title: 'One Piece', confidence: 1.0, canonicalUrl: 'https://mangadex.org/title/one-piece' });
+    assert.equal(detail.displayTitle, 'One Piece');
     const partial = await env.instance.search('Legend of Star', undefined, env.ctx());
     assert.equal(partial[0].pluginEntryId, LEGEND);
     assert.ok(partial[0].confidence > 0.7 && partial[0].confidence < 1);
@@ -388,4 +394,78 @@ test('the mapping\'s chapter parse mirrors the host\'s: "Chapter N", "Ch.N", non
   assert.equal(map.parseChapterTitle('Ch.15.5'), 15.5);
   assert.equal(map.parseChapterTitle('Prologue'), null);
   assert.equal(map.parseChapterTitle(null), null);
+});
+
+// ── contract 4.4.0: the record on each candidate (A32), every hit (A35, A36) ──
+
+test('search - each candidate carries its record (A32): title, site with its path, last chapter read, folder; nothing HakuNeko does not hold', async () => {
+  const env = await setup();
+  try {
+    const [legend] = await env.instance.search('Legend of Star General', undefined, env.ctx());
+    assert.equal(legend.pluginEntryId, LEGEND);
+    assert.deepEqual(legend.detail, {
+      displayTitle: 'Legend of Star General',
+      display: {
+        titles: [{ title: 'Legend of Star General', kind: 'main' }],
+        site: { id: 'manhuaus', label: 'ManhuaUS', path: '/manga/legend-of-star-general/' },
+        progress: { chapter: 372 },
+        folder: { path: `${env.baseDir}/Legend of Star General/`, exists: false },
+      },
+    }, 'a site path names the site and gives no link');
+    await fs.mkdir(path.join(env.baseDir, 'Solo Leveling'));
+    const [solo] = await env.instance.search('Solo Leveling', undefined, env.ctx());
+    assert.deepEqual(solo.detail.display.folder, { path: `${env.baseDir}/Solo Leveling/`, exists: true });
+    assert.equal(solo.detail.display.progress, undefined, 'no chaptermark: no progress, never a null chapter');
+    const [onePiece] = await env.instance.search('One Piece', undefined, env.ctx());
+    assert.deepEqual(onePiece.detail.display.site, { id: 'mangadex', label: 'MangaDex' }, 'a full-URL key is a link, not a path');
+    assert.deepEqual(onePiece.detail.display.links, [{ label: 'MangaDex', url: 'https://mangadex.org/title/one-piece', type: 'site' }]);
+    assert.deepEqual(validateResult('search', [legend, solo, onePiece], { manifest }), []);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('search - allHits answers every matching bookmark up to search.resultCap (A35, A36); without it, the limit of 10 as before', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ title: { connector: 'ManhuaUS', manga: `Series ${i + 1}` }, key: { connector: 'manhuaus', manga: `/manga/series-${i + 1}` } }));
+  const env = await setup({ bookmarks: many });
+  const capped = await setup({ bookmarks: many, settings: { 'search.resultCap': 3 } });
+  try {
+    assert.equal((await env.instance.search('Series', undefined, env.ctx())).length, 10);
+    assert.equal((await env.instance.search('Series', { limit: 4 }, env.ctx())).length, 4);
+    const every = await env.instance.search('Series', { allHits: true }, env.ctx());
+    assert.equal(every.length, 25, 'the default cap');
+    assert.deepEqual(validateResult('search', every, { manifest }), []);
+    assert.equal((await capped.instance.search('Series', { allHits: true }, capped.ctx())).length, 3, 'the configured cap');
+    assert.equal((await capped.instance.search('Series', undefined, capped.ctx())).length, 10, 'the cap governs allHits only');
+    assert.equal((await env.instance.search('Series 7', { allHits: true }, env.ctx()))[0].title, 'Series 7', 'best first');
+  } finally {
+    await env.cleanup();
+    await capped.cleanup();
+  }
+});
+
+test('the settings declare search.resultCap as agreed: number, default 25, 1-25, basic, performance; no new path field', () => {
+  const settingsDoc = require(path.join(REG, 'hakuneko-plugin-settings.json'));
+  const cap = settingsDoc.schema['search.resultCap'];
+  assert.equal(cap.type, 'number');
+  assert.equal(cap.default, 25);
+  assert.deepEqual(cap.validation, { min: 1, max: 25 });
+  assert.equal(cap.isBasic, true);
+  assert.equal(cap.readOnly, false);
+  assert.equal(cap.category, 'performance');
+  assert.equal(settingsDoc.settings['search.resultCap'], 25);
+  assert.deepEqual(manifest.filePathOptions.fields.map((/** @type {any} */ f) => f.key), ['downloadBaseDir', 'bookmarksPath', 'chaptermarksPath']);
+  assert.ok(!manifest.capabilities.includes('search.lookup'), 'HakuNeko declares no lookup');
+});
+
+test('the mapping - entryRecord is pure and holds only what HakuNeko holds', () => {
+  const bare = { title: { connector: '', manga: 'Bare' }, key: { connector: 'mangalist', manga: '' } };
+  const record = map.entryRecord(bare, { chapterByKey: new Map(), folder: { path: '/d/Bare/', exists: false } });
+  assert.deepEqual(record, {
+    displayTitle: 'Bare',
+    display: { titles: [{ title: 'Bare', kind: 'main' }], site: { id: 'mangalist', label: 'Manga List' }, folder: { path: '/d/Bare/', exists: false } },
+  }, "an empty label falls back to the connector's; an empty key is no path, no link");
+  const url = { title: { connector: 'MangaDex', manga: 'One Piece' }, key: { connector: 'mangadex', manga: 'https://mangadex.org/title/one-piece' } };
+  const linked = map.entryRecord(url, { chapterByKey: new Map(), folder: { path: '/d/One Piece/', exists: true } });
+  assert.deepEqual(linked.display && linked.display.links, [{ label: 'MangaDex', url: 'https://mangadex.org/title/one-piece', type: 'site' }], 'a full-URL key is its one link');
 });

@@ -29,10 +29,10 @@ test('manifest - reflects plugin-package.json and injects hostApiVersion', () =>
   assert.equal(manifest.entrypoints.settingsFile, 'apiwrappers/reg-hakuneko/hakuneko-plugin-settings.json');
 });
 
-test('manifest - contract 4.2.1: pluginContractVersion and the SDK\'s constant agree', () => {
+test('manifest - contract 4.4.0: pluginContractVersion and the SDK\'s constant agree', () => {
   const manifest = buildManifest('1.0.0');
-  assert.equal(manifest.pluginContractVersion, '4.2.1');
-  assert.equal(PLUGIN_CONTRACT_VERSION, '4.2.1');
+  assert.equal(manifest.pluginContractVersion, '4.4.0');
+  assert.equal(PLUGIN_CONTRACT_VERSION, '4.4.0');
 });
 
 test('manifest - watchOptions.wholeHolding: the bookmarks file is the whole holding (A28)', () => {
